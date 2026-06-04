@@ -37,15 +37,11 @@ select * from programme;
 -- CASE labels are placeholders — verify the full event_type code list against the live
 -- schema (e.g. the calendar event-type lookup table) before relying on them.
 select
-    cal.id            as calendar_id,
-    cal.name          as event_name,
+    cal.event          as event_name,event_description,event_access,
     cal.event_type    as event_type_code,
-    case cal.event_type
-        when 6 then 'HOLIDAY'
-        else concat('TYPE_', cal.event_type)
-    end               as event_type,
+    upper(et.event_type)               as event_type,
     cal.date_start,
     cal.date_end,
-    datediff(cal.date_end, cal.date_start) + 1 as duration_days
-from calendar cal
-order by cal.date_start, cal.id;
+    datediff(cal.date_end, cal.date_start) + 1 as duration_days,venue,all_day,speaker
+from calendar cal left join event_types et on et.event_type_id = cal.event_type
+order by cal.date_start;
