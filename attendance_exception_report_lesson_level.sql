@@ -14,10 +14,10 @@ SELECT
   aael.id                                                AS applied_log_id,
   aael.attendance_exception_log_id                       AS exception_id,
   aael.ukid                                              AS student_ukid,
-  TRIM(CONCAT_WS(' ', sp.f_name, sp.m_name, sp.l_name))  AS student_name,
+  TRIM(CONCAT_WS(' ', ua.f_name, " ", ua.l_name))        AS student_name,
   au.email                                               AS student_email,
   sp.enrollment_number,
-  sp.roll_number,
+  ua.registration_id,
 
   aael.class_id,
   aael.lesson_id,
@@ -51,6 +51,7 @@ SELECT
 FROM applied_attendance_exception_log aael
 JOIN      attendance_exception_logs ael       ON ael.id  = aael.attendance_exception_log_id
 LEFT JOIN student_profile sp                  ON sp.ukid = aael.ukid
+LEFT JOIN user_attributes ua                ON sp.ukid  = ua.ukid
 LEFT JOIN authenticator au                    ON au.ukid = aael.ukid
 LEFT JOIN UDC_09_USER_ATTENDANCE_STATUS prev  ON prev.id = aael.previous_status_id
 LEFT JOIN UDC_09_USER_ATTENDANCE_STATUS uas   ON uas.id  = ael.status_id

@@ -8,10 +8,10 @@
 SELECT
   ael.id                                                       AS exception_id,
   ael.ukid                                                     AS student_ukid,
-  TRIM(CONCAT_WS(' ', sp.f_name, sp.m_name, sp.l_name))        AS student_name,
+  TRIM(CONCAT_WS(' ', ua.f_name, " ", ua.l_name))        AS student_name,
   au.email                                                     AS student_email,
   sp.enrollment_number,
-  sp.roll_number,
+  ua.registration_id,
   uas.status                                                   AS exception_type,
   uas.abbreviation                                             AS exception_abbr,
   uas.final_status,
@@ -34,6 +34,7 @@ SELECT
   SUM(aael.exception_status = 'APPLICABLE')                    AS lessons_applicable
 FROM attendance_exception_logs ael
 LEFT JOIN student_profile sp                ON sp.ukid  = ael.ukid
+LEFT JOIN user_attributes ua                ON sp.ukid  = ua.ukid
 LEFT JOIN authenticator au                  ON au.ukid  = ael.ukid
 LEFT JOIN faculty_profile fp                ON fp.ukid  = ael.performed_by_ukid
 LEFT JOIN admin_profile ap                  ON ap.ukid  = ael.performed_by_ukid
