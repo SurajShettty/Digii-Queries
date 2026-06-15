@@ -10,7 +10,6 @@ SELECT
   ael.ukid                                                     AS student_ukid,
   TRIM(CONCAT_WS(' ', ua.f_name, " ", ua.l_name))        AS student_name,
   au.email                                                     AS student_email,
-  sp.enrollment_number,
   ua.registration_id,
   uas.status                                                   AS exception_type,
   uas.abbreviation                                             AS exception_abbr,
