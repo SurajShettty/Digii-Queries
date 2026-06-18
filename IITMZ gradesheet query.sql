@@ -53,9 +53,9 @@ SELECT
     CONCAT(ua.f_name, ' ', ua.l_name) AS "Student Name",
     d.department_name AS Department,
     p.programme_name AS Programme,
-    tc.course_name AS "Course Name",
-    tc.course_code AS "Course Code",
-    tc.course_credits AS "Course Credit",
+    cv.course_name AS "Course Name",
+    coalesce(co.course_code,tc.course_code) AS "Course Code",
+    cv.course_credits AS "Course Credit",
     LEFT(co.alt_name, 1) AS Category,
     ROW_NUMBER() OVER (PARTITION BY sp.ukid ORDER BY tc.course_code) AS course_number,
     CONCAT("Course",'-', ROW_NUMBER() OVER (PARTITION BY t.id, sp.ukid ORDER BY tc.course_code)) AS course_code_with_number,
@@ -68,8 +68,8 @@ SELECT
 --     t1.earned_point,
     ROUND((ps.attend1 / ts.attendan) * 100, 2) AS attendance_percent, -- Adding attendance_percent here,
     CASE 
-        WHEN ROUND((ps.attend1 / ts.attendan) * 100, 2) >= 95 THEN 'VG'
-        WHEN ROUND((ps.attend1 / ts.attendan) * 100, 2) BETWEEN 85 AND 94 THEN 'G'
+        WHEN ROUND((ps.attend1 / ts.attendan) * 100, 2) > 95 THEN 'VG'
+        WHEN ROUND((ps.attend1 / ts.attendan) * 100, 2) BETWEEN 85 AND 95 THEN 'G'
         WHEN ROUND((ps.attend1 / ts.attendan) * 100, 2) < 85 THEN 'P'
         WHEN ROUND((ps.attend1 / ts.attendan) * 100, 2) is null then null
         ELSE 'Unknown' 
@@ -79,8 +79,9 @@ FROM ems_student_programme_enrollment esp
 INNER JOIN ems_student_course_enrollment esc ON esc.student_programme_enrollment_id = esp.id
 INNER JOIN ems_examination ee ON ee.id = esp.exam_id
 INNER JOIN term_course tc ON tc.id = esc.term_course_id
+inner join course_version cv on cv.id = tc.course_version_id
 INNER JOIN student_profile sp ON sp.ukid = esp.ukid
-INNER JOIN course co ON tc.course_id = co.course_id
+INNER JOIN course co ON cv.course_id = co.course_id
 INNER JOIN department d ON d.department_id = co.department_id
 INNER JOIN programme p ON p.programme_id = sp.programme_id
 INNER JOIN ems_examination_student_course_grade eesc ON eesc.term_course_id = tc.id AND eesc.student_ukid = esp.ukid
@@ -109,8 +110,8 @@ WHERE
 --     
  p.programme_name='MASTER OF TECHNOLOGY IN DATA SCIENCE AND ARTIFICIAL INTELLIGENCE'
  AND sp.year_of_joining = 2024
--- and 
--- sp.ukid in (1201901,1201836)
+ and 
+ ua.registration_id in ("ZDA24M001")
 GROUP BY
     sp.ukid,
     ua.registration_id,
