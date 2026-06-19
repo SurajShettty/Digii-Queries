@@ -44,17 +44,16 @@ present_sessions AS (
 SELECT 
     t.name AS term_name,
     t.starts,
-    t.id term_id,
     CONCAT('1-', t.name) AS concata,
     CONCAT(t.name,'-', ROW_NUMBER() OVER (PARTITION BY sp.ukid ORDER BY tc.id)) AS course_number_term,
     sp.ukid,
-    ua.registration_id,
+    ua.registration_id AS "Registration ID",
     CONCAT(ua.registration_id, tc.course_code) AS student_code,
     CONCAT(ua.f_name, ' ', ua.l_name) AS "Student Name",
     d.department_name AS Department,
     p.programme_name AS Programme,
     cv.course_name AS "Course Name",
-    coalesce(co.course_code,tc.course_code) AS "Course Code",
+    co.course_code AS "Course Code",
     cv.course_credits AS "Course Credit",
     LEFT(co.alt_name, 1) AS Category,
     ROW_NUMBER() OVER (PARTITION BY sp.ukid ORDER BY tc.course_code) AS course_number,
@@ -64,23 +63,28 @@ SELECT
     eess.sgpa,
     eescq.cgpa,
     IF(eesc.grade IS NULL, '-', IF(eesc.is_failed + eesc.is_failed_for_re_exam >= 1, 'fail', 'pass')) AS status,
-    IF(eesc.grade IS NULL OR (eesc.is_failed + eesc.is_failed_for_re_exam) >= 1, 0, tc.course_credits) AS "Earned Point",
---     t1.earned_point,
-    ROUND((ps.attend1 / ts.attendan) * 100, 2) AS attendance_percent, -- Adding attendance_percent here,
-    CASE 
-        WHEN ROUND((ps.attend1 / ts.attendan) * 100, 2) > 95 THEN 'VG'
-        WHEN ROUND((ps.attend1 / ts.attendan) * 100, 2) BETWEEN 85 AND 95 THEN 'G'
-        WHEN ROUND((ps.attend1 / ts.attendan) * 100, 2) < 85 THEN 'P'
-        WHEN ROUND((ps.attend1 / ts.attendan) * 100, 2) is null then null
-        ELSE 'Unknown' 
-    END AS "Percentage Grade"
+    IF(
+        eesc.grade IS NULL
+        OR COALESCE(eesc.is_failed, 0) + COALESCE(eesc.is_failed_for_re_exam, 0) >= 1,
+        0,
+        cv.course_credits
+    ) AS "Earned Point",
+    ROUND((ps.attend1 / ts.attendan) * 100, 2) AS attendance_percent,
+  CASE 
+    WHEN ROUND((ps.attend1 / ts.attendan) * 100, 2) > 94 THEN 'VG'
+    WHEN ROUND((ps.attend1 / ts.attendan) * 100, 2) >= 80 THEN 'G'
+    WHEN ROUND((ps.attend1 / ts.attendan) * 100, 2) >= 75 THEN 'M'
+    WHEN ROUND((ps.attend1 / ts.attendan) * 100, 2) < 75 THEN 'P'
+    WHEN ROUND((ps.attend1 / ts.attendan) * 100, 2) IS NULL THEN NULL
+    ELSE 'Unknown' 
+END AS "Percentage Grade"
 
 FROM ems_student_programme_enrollment esp
 INNER JOIN ems_student_course_enrollment esc ON esc.student_programme_enrollment_id = esp.id
 INNER JOIN ems_examination ee ON ee.id = esp.exam_id
 INNER JOIN term_course tc ON tc.id = esc.term_course_id
-inner join course_version cv on cv.id = tc.course_version_id
 INNER JOIN student_profile sp ON sp.ukid = esp.ukid
+INNER JOIN course_version cv ON cv.id = tc.course_version_id and is_default=1
 INNER JOIN course co ON cv.course_id = co.course_id
 INNER JOIN department d ON d.department_id = co.department_id
 INNER JOIN programme p ON p.programme_id = sp.programme_id
@@ -106,12 +110,11 @@ LEFT JOIN total_sessions ts ON ts.ukid = sp.ukid AND ts.course_code = tc.course_
 LEFT JOIN present_sessions ps ON ts.ukid = ps.ukid AND ts.class_id = ps.class_id
 
 WHERE
---     p.programme_id  IN  (11,12,13)
---     
- p.programme_name='MASTER OF TECHNOLOGY IN DATA SCIENCE AND ARTIFICIAL INTELLIGENCE'
+  p.programme_name='MASTER OF TECHNOLOGY IN DATA SCIENCE AND ARTIFICIAL INTELLIGENCE'
  AND sp.year_of_joining = 2024
- and 
- ua.registration_id in ("ZDA24M001")
+  --    and   ua.registration_id='zda24m001'
+--    and ua.registration_id ='zda24m004'
+
 GROUP BY
     sp.ukid,
     ua.registration_id,
@@ -131,4 +134,4 @@ GROUP BY
 ORDER BY
     t.starts ASC,
     sp.ukid,
-    course_number ASC
+    course_number ASC;
