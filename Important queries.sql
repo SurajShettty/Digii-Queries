@@ -1874,3 +1874,6 @@ select cl.id as class_id,cl.batch as class_name,cct.name as class_component,ex.*
 (select max(id) from course_version where is_default = 1 group by course_id) 
 order by c.course_id) ex on cl.course_id = ex.course_id where cl.term_id = 69;
 
+-- class work assessment query used for KCE:
+
+select student_ukid,registration_id,concat(ua.f_name," ",ua.l_name) as student_name,coalesce(cv.course_code,cv.course_code) course_code,coalesce(cv.course_name,cv.course_name) course_name,cct.name as course_component,t.name as term,ca.name as assessment_name,cam.marks  from class_assessment_marks cam left join user_attributes ua on ua.ukid = cam.student_ukid left join class_assessment ca on ca.id = cam.assessment_id left join class c on c.id = ca.class_id left join term_course tc on tc.course_id = c.course_id and tc.term_id = c.term_id left join course_version cv on cv.id = tc.course_version_id left join course cc on cc.course_id = cv.course_id left join term t on t.id = tc.term_id left join course_component_type cct on cct.id = c.course_component_type_id where tc.term_id = 6 and coalesce(cv.course_code,cv.course_code) = '23adr405' and cct.id = 1 group by class_id,student_ukid,ca.id;
