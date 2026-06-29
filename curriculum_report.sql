@@ -17,15 +17,19 @@
 --   ccc.course_code IS NOT NULL -> exclude empty cluster-sets
 
 SELECT
+	t.name as `Term`,
     d.department_name        AS `Department`,
     p.programme_name         AS `Program`,
     c.batch_year             AS `Batch`,
-    ccc.course_name          AS `Course Name`,
+    coalesce(ccc.course_name,cv.course_name)          AS `Course Name`,
     ccc.course_code          AS `Course Code`,
-    ccc.course_credits       AS `Course Credit`,
+    coalesce(ccc.course_credits,cv.course_credits)       AS `Course Credit`,
     crt.name                 AS `Enrollment Type`,
     cc.sequence              AS `Semester Sequence`
 FROM curriculum_course ccc
+left join course_version cv on cv.id = ccc.course_version_id
+left join term_course tc on tc.course_version_id = cv.id
+left join term t on t.id = tc.term_id
 JOIN curriculum_cluster_set ccs ON ccs.id = ccc.curriculum_cluster_set_id
 JOIN curriculum_cluster     cc  ON cc.id  = ccs.curriculum_cluster_id
 JOIN curriculum             c   ON c.id   = cc.curriculum_id
@@ -34,6 +38,6 @@ LEFT JOIN programme         p   ON p.programme_id = c.programme_id
 LEFT JOIN department        d   ON d.department_id = p.department_id
 WHERE ccc.is_deleted = 0
   AND cc.sequence IS NOT NULL
-  AND ccc.course_code IS NOT NULL
+  AND ccc.course_code IS NOT NULL and tc.term_id in (137,130)
 ORDER BY d.department_name, p.programme_name, c.batch_year,
          cc.sequence, crt.name, ccc.course_code;
