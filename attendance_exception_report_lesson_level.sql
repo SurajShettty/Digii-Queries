@@ -20,10 +20,8 @@ SELECT
 
   aael.class_id,
   aael.lesson_id,
-  -- les.lesson_date,            -- TODO: verify column name in `lesson`
-  -- les.start_time AS lesson_start_time,
-  -- cls.name       AS class_name,   -- TODO: verify column name in `class`
-
+  DATE(l.start) AS lesson_date,
+  l.start AS lesson_start_time,
   prev.status        AS previous_status,        -- attendance before exception
   prev.abbreviation  AS previous_abbr,
   uas.status         AS exception_type,          -- category applied (from request)
@@ -48,6 +46,8 @@ SELECT
   )                  AS applied_by,
   aael.created_timestamp
 FROM applied_attendance_exception_log aael
+INNER JOIN timetable_lesson_course_class tt ON tt.lesson_id = aael.lesson_id
+INNER JOIN lesson l ON l.id = tt.lesson_id
 JOIN      attendance_exception_logs ael       ON ael.id  = aael.attendance_exception_log_id
 LEFT JOIN student_profile sp                  ON sp.ukid = aael.ukid
 LEFT JOIN user_attributes ua                ON sp.ukid  = ua.ukid
@@ -58,9 +58,5 @@ LEFT JOIN term t                              ON t.id    = ael.term_id
 LEFT JOIN faculty_profile fp                  ON fp.ukid = ael.performed_by_ukid
 LEFT JOIN admin_profile ap                    ON ap.ukid = ael.performed_by_ukid
 LEFT JOIN student_profile psp                 ON psp.ukid= ael.performed_by_ukid
--- LEFT JOIN lesson les                       ON les.id  = aael.lesson_id    -- enrich after verifying
--- LEFT JOIN class  cls                       ON cls.id  = aael.class_id     -- enrich after verifying
--- Optional filters:
---   WHERE aael.exception_status = 'APPLICABLE'
---   AND   ael.term_id = <term_id>
+
 ORDER BY aael.attendance_exception_log_id DESC, aael.id;
