@@ -58,5 +58,5 @@ LEFT JOIN term t                              ON t.id    = ael.term_id
 LEFT JOIN faculty_profile fp                  ON fp.ukid = ael.performed_by_ukid
 LEFT JOIN admin_profile ap                    ON ap.ukid = ael.performed_by_ukid
 LEFT JOIN student_profile psp                 ON psp.ukid= ael.performed_by_ukid
-
+group by aael.id
 ORDER BY aael.attendance_exception_log_id DESC, aael.id;
