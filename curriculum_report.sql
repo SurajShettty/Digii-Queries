@@ -41,3 +41,69 @@ WHERE ccc.is_deleted = 0
   AND ccc.course_code IS NOT NULL and tc.term_id in (137,130)
 ORDER BY d.department_name, p.programme_name, c.batch_year,
          cc.sequence, crt.name, ccc.course_code;
+
+
+
+
+
+SELECT 
+    term_id,
+    ccs.name AS ccs_name,
+    p.programme_name,
+    dd.department_name AS programme_dept,
+    c.batch_year,
+    cc.sequence,
+    crt.name AS enrolment_type,
+    IF(cc.is_term_dependent = 1,
+        'Term Specific',
+        'Term Independent') curriculum_type,
+    s.name specialisation,
+    psm.specialisation_type,
+    ccc.course_code,
+    cv.id AS course_version_id,
+    cv.version,
+    cv.course_name,
+    cct.name AS component_type,
+    cco.course_credits AS component_credits,
+    d.department_name AS course_offered_by_dept,
+    ccc.course_credits,
+    ccs.min_courses,
+    ccs.max_courses,
+    ccs.min_credits,
+    ccs.max_credits
+FROM
+    term_programme_batch tpb
+        LEFT JOIN
+    curriculum c ON c.programme_id = tpb.programme_id
+        AND c.batch_year = tpb.batch
+        LEFT JOIN
+    curriculum_cluster cc ON cc.curriculum_id = c.id
+        LEFT JOIN
+    curriculum_cluster_set ccs ON ccs.curriculum_cluster_id = cc.id
+        LEFT JOIN
+    course_registration_type crt ON crt.id = ccs.course_registration_type_id
+        LEFT JOIN
+    programme p ON p.programme_id = c.programme_id
+        LEFT JOIN
+    department dd ON dd.department_id = p.department_id
+        LEFT JOIN
+    curriculum_course ccc ON ccc.curriculum_cluster_set_id = ccs.id
+        LEFT JOIN
+    course_version cv ON cv.id = ccc.course_version_id
+        LEFT JOIN
+    course cccc ON cv.course_id = cccc.course_id
+        LEFT JOIN
+    department d ON d.department_id = cccc.department_id
+        LEFT JOIN
+    programme_specialisation_mapping psm ON psm.id = c.programme_specialisation_mapping_id
+        LEFT JOIN
+    specialisation s ON psm.specialisation_id = s.id
+        LEFT JOIN
+    course_component cco ON cco.course_version_id = cv.id
+        LEFT JOIN
+    course_component_type cct ON cct.id = cco.course_component_type_id
+WHERE
+    sequence IS NOT NULL
+        AND ccc.course_code IS NOT NULL
+        AND ccs.is_deleted = 0
+        AND term_id = 130;
