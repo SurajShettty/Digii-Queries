@@ -40,18 +40,32 @@ SELECT
     p.programme_name                                 AS `Programme Name`,
     oa.term_name                                     AS `Term Name`,
     sp.year_of_joining                               AS `Batch`,
-    ((CAST(oa.acad_year_start AS SIGNED) - CAST(sp.year_of_joining AS SIGNED)) *
-        IF(p.system = 'semester', 2, IF(p.system = 'trimester', 3, 1))
-     + CAST(oa.term_sequence AS SIGNED))             AS `Semester`,
+(
+    SELECT
+        (
+            (
+                CAST(oa.acad_year_start AS SIGNED)
+                - CAST(sp.year_of_joining AS SIGNED)
+            )
+            *
+            CASE
+                WHEN p.system = 'semester' THEN 2
+                WHEN p.system = 'trimester' THEN 3
+                ELSE 1
+            END
+            +
+            CAST(COALESCE(oa.term_sequence,0) AS SIGNED)
+        )
+) AS `Semester`,
     ua.registration_id                               AS `Registration Id`,
     CONCAT(ua.f_name, ' ', COALESCE(ua.l_name, ''))  AS `Student Name`,
     oa.opted_count                                   AS `Total Opted Course Count`,
     oa.opted_credits                                 AS `Total Opted Course Credits`,
     ea.earned_credits                                AS `Total Earned Credits`,
     ea.pass_credits                                  AS `Total pass credits`,
-    cgpa.cgpa                                        AS `CGPA`
+    round(cgpa.cgpa,2)                                         AS `CGPA`
 FROM (
-    -- OPTED, at term_course granularity: distinct REGULAR term_courses per student per term
+
     SELECT o.ukid,
            o.term_id,
            o.term_name,
@@ -68,19 +82,28 @@ FROM (
                sce.term_course_id,
                COALESCE(tc.course_credits, cv.course_credits) AS cr
         FROM ems_student_programme_enrollment spe
-        JOIN ems_examination ee ON ee.id = spe.exam_id
-        JOIN term t             ON t.id  = ee.term_id
+        JOIN ems_examination ee
+            ON ee.id = spe.exam_id
+        JOIN term t
+            ON t.id = ee.term_id
         JOIN ems_student_course_enrollment sce
-          ON sce.student_programme_enrollment_id = spe.id
-         AND sce.enrollment_status IN ('ENROLLED','AUTO_ENROLLED')
-         AND sce.type = 'REGULAR'
-        LEFT JOIN term_course   tc ON tc.id = sce.term_course_id
-        LEFT JOIN course_version cv ON cv.id = tc.course_version_id
+            ON sce.student_programme_enrollment_id = spe.id
+           AND sce.enrollment_status IN ('ENROLLED','AUTO_ENROLLED')
+           AND sce.type = 'REGULAR'
+        LEFT JOIN term_course tc
+            ON tc.id = sce.term_course_id
+        LEFT JOIN course_version cv
+            ON cv.id = tc.course_version_id
     ) o
-    GROUP BY o.ukid, o.term_id, o.term_name, o.acad_year_start, o.term_sequence
+    GROUP BY
+        o.ukid,
+        o.term_id,
+        o.term_name,
+        o.acad_year_start,
+        o.term_sequence
 ) oa
 JOIN (
-    -- EARNED / PASSED, at course granularity: distinct opted course cleared in ANY attempt
+
     SELECT oc.ukid,
            oc.term_id,
            SUM(CASE WHEN cp.earned = 1 THEN oc.cr ELSE 0 END) AS earned_credits,
@@ -91,55 +114,89 @@ JOIN (
                tc.course_id,
                MAX(COALESCE(tc.course_credits, cv.course_credits)) AS cr
         FROM ems_student_programme_enrollment spe
-        JOIN ems_examination ee ON ee.id = spe.exam_id
+        JOIN ems_examination ee
+            ON ee.id = spe.exam_id
         JOIN ems_student_course_enrollment sce
-          ON sce.student_programme_enrollment_id = spe.id
-         AND sce.enrollment_status IN ('ENROLLED','AUTO_ENROLLED')
-         AND sce.type = 'REGULAR'
-        LEFT JOIN term_course   tc ON tc.id = sce.term_course_id
-        LEFT JOIN course_version cv ON cv.id = tc.course_version_id
-        GROUP BY spe.ukid, ee.term_id, tc.course_id
+            ON sce.student_programme_enrollment_id = spe.id
+           AND sce.enrollment_status IN ('ENROLLED','AUTO_ENROLLED')
+           AND sce.type = 'REGULAR'
+        LEFT JOIN term_course tc
+            ON tc.id = sce.term_course_id
+        LEFT JOIN course_version cv
+            ON cv.id = tc.course_version_id
+        GROUP BY
+            spe.ukid,
+            ee.term_id,
+            tc.course_id
     ) oc
     LEFT JOIN (
-        -- pass/earned per (student, course) across every attempt of that course
         SELECT student_ukid,
                course_id,
-               MAX(CASE WHEN (is_failed = 0            AND grade_point        IS NOT NULL)
+               MAX(
+                   CASE
+                       WHEN (is_failed = 0 AND grade_point IS NOT NULL)
                          OR (is_failed_for_re_exam = 0 AND re_exam_grade_point IS NOT NULL)
-                        THEN 1 ELSE 0 END) AS earned,
-               MAX(CASE WHEN (is_failed = 0            AND (grade IS NOT NULL OR grade_point IS NOT NULL))
+                       THEN 1 ELSE 0
+                   END
+               ) AS earned,
+               MAX(
+                   CASE
+                       WHEN (is_failed = 0 AND (grade IS NOT NULL OR grade_point IS NOT NULL))
                          OR (is_failed_for_re_exam = 0 AND (re_exam_grade IS NOT NULL OR re_exam_grade_point IS NOT NULL))
-                        THEN 1 ELSE 0 END) AS passed
+                       THEN 1 ELSE 0
+                   END
+               ) AS passed
         FROM ems_examination_student_course_grade
-        GROUP BY student_ukid, course_id
-    ) cp ON cp.student_ukid = oc.ukid AND cp.course_id = oc.course_id
-    GROUP BY oc.ukid, oc.term_id
-) ea ON ea.ukid = oa.ukid AND ea.term_id = oa.term_id
+        GROUP BY
+            student_ukid,
+            course_id
+    ) cp
+        ON cp.student_ukid = oc.ukid
+       AND cp.course_id = oc.course_id
+    GROUP BY
+        oc.ukid,
+        oc.term_id
+) ea
+    ON ea.ukid = oa.ukid
+   AND ea.term_id = oa.term_id
 LEFT JOIN (
-    -- One positive cumulative CGPA row per student per term; prefer non-zero re-exam CGPA.
     SELECT c1.student_ukid,
            ee1.term_id,
            COALESCE(NULLIF(c1.re_exam_cgpa, 0), c1.cgpa) AS cgpa
     FROM ems_examination_student_cgpa c1
-    JOIN ems_examination ee1 ON ee1.id = c1.exam_id
+    JOIN ems_examination ee1
+        ON ee1.id = c1.exam_id
     JOIN (
         SELECT c2.student_ukid,
                ee2.term_id,
                MAX(c2.id) AS max_id
         FROM ems_examination_student_cgpa c2
-        JOIN ems_examination ee2 ON ee2.id = c2.exam_id
+        JOIN ems_examination ee2
+            ON ee2.id = c2.exam_id
         WHERE COALESCE(NULLIF(c2.re_exam_cgpa, 0), c2.cgpa) > 0
-        GROUP BY c2.student_ukid, ee2.term_id
+        GROUP BY
+            c2.student_ukid,
+            ee2.term_id
     ) latest
-      ON latest.student_ukid = c1.student_ukid
-     AND latest.term_id = ee1.term_id
-     AND latest.max_id = c1.id
-) cgpa ON cgpa.student_ukid = oa.ukid AND cgpa.term_id = oa.term_id
-JOIN      user_attributes ua ON ua.ukid = oa.ukid
-LEFT JOIN student_profile sp ON sp.ukid = oa.ukid
-LEFT JOIN programme p        ON p.programme_id  = sp.programme_id
-LEFT JOIN department d       ON d.department_id = p.department_id
-WHERE 1 = 1
-  -- AND sp.year_of_joining = <batch>  -- optional: restrict to one batch/cohort
-  -- AND p.programme_id = <programme>  -- optional: restrict to one programme
-ORDER BY d.department_name, p.programme_name, `Student Name`, `Semester`, oa.term_name;
+        ON latest.student_ukid = c1.student_ukid
+       AND latest.term_id = ee1.term_id
+       AND latest.max_id = c1.id
+) cgpa
+    ON cgpa.student_ukid = oa.ukid
+   AND cgpa.term_id = oa.term_id
+JOIN user_attributes ua
+    ON ua.ukid = oa.ukid
+LEFT JOIN student_profile sp
+    ON sp.ukid = oa.ukid
+LEFT JOIN programme p
+    ON p.programme_id = sp.programme_id
+LEFT JOIN department d
+    ON d.department_id = p.department_id
+
+ORDER BY
+    d.department_name,
+    p.programme_name,
+    `Student Name`,
+    `Semester`,
+    oa.term_name;
+    SELECT VERSION();
