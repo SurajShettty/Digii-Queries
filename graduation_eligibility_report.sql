@@ -89,7 +89,7 @@ FROM (
         JOIN ems_student_course_enrollment sce
             ON sce.student_programme_enrollment_id = spe.id
            AND sce.enrollment_status IN ('ENROLLED','AUTO_ENROLLED')
-           AND sce.type = 'REGULAR'
+           AND sce.type IN ('REGULAR','BACKLOG')
         LEFT JOIN term_course tc
             ON tc.id = sce.term_course_id
         LEFT JOIN course_version cv
@@ -119,7 +119,7 @@ JOIN (
         JOIN ems_student_course_enrollment sce
             ON sce.student_programme_enrollment_id = spe.id
            AND sce.enrollment_status IN ('ENROLLED','AUTO_ENROLLED')
-           AND sce.type = 'REGULAR'
+           AND sce.type IN ('REGULAR','BACKLOG')
         LEFT JOIN term_course tc
             ON tc.id = sce.term_course_id
         LEFT JOIN course_version cv
