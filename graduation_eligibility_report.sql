@@ -11,10 +11,9 @@
 --   * NOT_ENROLLED = offered but not opted -> excluded.
 --
 -- EARNED / PASSED (counted at COURSE granularity within the opted term):
---   A course counts as earned/passed in the term where it was opted if it was cleared in ANY attempt,
---   looked up across ALL of the student's grade rows for that course_id. This keeps later re-attempts
---   from creating extra opted credits, while still crediting the original opted term after the course
---   is cleared.
+--   A course counts as earned/passed in the term where it was opted based on the student's LATEST
+--   grade attempt for that course_id. This lets later cleared backlogs add earned credit, while a
+--   later failed/NE backlog attempt keeps the course unearned.
 --
 -- Column definitions:
 --   Total Opted Course Count   = # regular opted term_courses in that term.
@@ -89,7 +88,7 @@ FROM (
         JOIN ems_student_course_enrollment sce
             ON sce.student_programme_enrollment_id = spe.id
            AND sce.enrollment_status IN ('ENROLLED','AUTO_ENROLLED')
-           AND sce.type IN ('REGULAR','BACKLOG')
+           AND sce.type = 'REGULAR'
         LEFT JOIN term_course tc
             ON tc.id = sce.term_course_id
         LEFT JOIN course_version cv
@@ -119,7 +118,7 @@ JOIN (
         JOIN ems_student_course_enrollment sce
             ON sce.student_programme_enrollment_id = spe.id
            AND sce.enrollment_status IN ('ENROLLED','AUTO_ENROLLED')
-           AND sce.type IN ('REGULAR','BACKLOG')
+           AND sce.type = 'REGULAR'
         LEFT JOIN term_course tc
             ON tc.id = sce.term_course_id
         LEFT JOIN course_version cv
@@ -130,26 +129,54 @@ JOIN (
             tc.course_id
     ) oc
     LEFT JOIN (
-        SELECT student_ukid,
-               course_id,
+        SELECT g.student_ukid,
+               g.course_id,
                MAX(
                    CASE
-                       WHEN (is_failed = 0 AND grade_point IS NOT NULL)
-                         OR (is_failed_for_re_exam = 0 AND re_exam_grade_point IS NOT NULL)
+                       WHEN (g.is_failed = 0 AND g.grade_point IS NOT NULL)
+                         OR (g.is_failed_for_re_exam = 0 AND g.re_exam_grade_point IS NOT NULL)
                        THEN 1 ELSE 0
                    END
                ) AS earned,
                MAX(
                    CASE
-                       WHEN (is_failed = 0 AND (grade IS NOT NULL OR grade_point IS NOT NULL))
-                         OR (is_failed_for_re_exam = 0 AND (re_exam_grade IS NOT NULL OR re_exam_grade_point IS NOT NULL))
+                       WHEN (g.is_failed = 0 AND (g.grade IS NOT NULL OR g.grade_point IS NOT NULL))
+                         OR (g.is_failed_for_re_exam = 0 AND (g.re_exam_grade IS NOT NULL OR g.re_exam_grade_point IS NOT NULL))
                        THEN 1 ELSE 0
                    END
                ) AS passed
-        FROM ems_examination_student_course_grade
+        FROM ems_examination_student_course_grade g
+        JOIN ems_examination ge
+            ON ge.id = g.examination_id
+        JOIN term gt
+            ON gt.id = ge.term_id
+        JOIN (
+            SELECT g2.student_ukid,
+                   g2.course_id,
+                   MAX(CONCAT(
+                       DATE_FORMAT(COALESCE(t2.starts, '1000-01-01'), '%Y%m%d%H%i%s'),
+                       LPAD(ee2.id, 10, '0'),
+                       LPAD(g2.id, 10, '0')
+                   )) AS latest_key
+            FROM ems_examination_student_course_grade g2
+            JOIN ems_examination ee2
+                ON ee2.id = g2.examination_id
+            JOIN term t2
+                ON t2.id = ee2.term_id
+            GROUP BY
+                g2.student_ukid,
+                g2.course_id
+        ) latest_grade
+            ON latest_grade.student_ukid = g.student_ukid
+           AND latest_grade.course_id = g.course_id
+           AND latest_grade.latest_key = CONCAT(
+               DATE_FORMAT(COALESCE(gt.starts, '1000-01-01'), '%Y%m%d%H%i%s'),
+               LPAD(ge.id, 10, '0'),
+               LPAD(g.id, 10, '0')
+           )
         GROUP BY
-            student_ukid,
-            course_id
+            g.student_ukid,
+            g.course_id
     ) cp
         ON cp.student_ukid = oc.ukid
        AND cp.course_id = oc.course_id
@@ -199,4 +226,3 @@ ORDER BY
     `Student Name`,
     `Semester`,
     oa.term_name;
-    SELECT VERSION();
