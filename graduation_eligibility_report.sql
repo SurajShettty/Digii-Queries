@@ -57,6 +57,7 @@ SELECT
         )
 ) AS `Semester`,
     ua.registration_id                               AS `Registration Id`,
+    if(a.is_active=1,'Active','Inactive') AS 'Is Active?',
     CONCAT(ua.f_name, ' ', COALESCE(ua.l_name, ''))  AS `Student Name`,
     oa.opted_count                                   AS `Total Opted Course Count`,
     oa.opted_credits                                 AS `Total Opted Course Credits`,
@@ -213,6 +214,7 @@ LEFT JOIN (
    AND cgpa.term_id = oa.term_id
 JOIN user_attributes ua
     ON ua.ukid = oa.ukid
+LEFT JOIN authenticator a ON a.ukid = ua.ukid
 LEFT JOIN student_profile sp
     ON sp.ukid = oa.ukid
 LEFT JOIN programme p
