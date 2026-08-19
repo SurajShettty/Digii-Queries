@@ -6,11 +6,11 @@
         "-y",
         "@executeautomation/database-server",
         "--mysql",
-        "--host", "collpolldb9-read.c5sc77nejhmr.ap-south-1.rds.amazonaws.com",
-        "--database", "collpoll_iilmgg",
+        "--host", "digii-common-read.c5sc77nejhmr.ap-south-1.rds.amazonaws.com",
+        "--database", "collpoll_university",
         "--port", "3306",
         "--user", "suraj_shetty",
-        "--password", "3qIGaWCdlh"
+        "--password", "xlLlDMtUOt"
       ],
       "env": {
         "ALLOW_INSERT_OPERATION": "false",
