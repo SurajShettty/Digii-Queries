@@ -15,6 +15,8 @@
   Notes
     - Drafts and deleted items are excluded.
     - Direct components have no creator column, so "Created By" shows the class faculty.
+    - Subject / Course Code come from the term's course_version, falling back to
+      the default course_version, then course, then term_course.
     - All timestamps converted from UTC to IST.
     - Filter on term: uncomment the WHERE at the bottom.
 */
@@ -41,8 +43,8 @@ FROM (
         a.created_timestamp                                      AS created_ts,
         COALESCE(a.start_date, a.publish_datetime)               AS start_ts,
         a.due_date                                               AS end_ts,
-        COALESCE(c.course_name, tc.course_name)                  AS subject,
-        COALESCE(c.course_code, tc.course_code)                  AS course_code,
+        COALESCE(cv.course_name, dcv.course_name, c.course_name, tc.course_name) AS subject,
+        COALESCE(cv.course_code, dcv.course_code, c.course_code, tc.course_code) AS course_code,
         TRIM(CONCAT_WS(' ', NULLIF(TRIM(ua.f_name), ''), NULLIF(TRIM(ua.m_name), ''), NULLIF(TRIM(ua.l_name), '')))    AS created_by,
         'LMS'                                                    AS mode,
         (SELECT COUNT(*) FROM obe_assignment_course_outcomes o
@@ -54,6 +56,8 @@ FROM (
     JOIN term t              ON t.id = cl.term_id
     LEFT JOIN course c       ON c.course_id = cl.course_id
     LEFT JOIN term_course tc ON tc.term_id = cl.term_id AND tc.course_id = cl.course_id
+    LEFT JOIN course_version cv  ON cv.id = tc.course_version_id
+    LEFT JOIN course_version dcv ON dcv.course_id = cl.course_id AND dcv.is_default = 1
     LEFT JOIN user_attributes ua ON ua.ukid = a.creator_ukid
     WHERE a.is_deleted = 0
       AND a.is_draft = 0
@@ -69,8 +73,8 @@ FROM (
         q.created_timestamp,
         COALESCE(q.quiz_start_time, q.publish_datetime),
         COALESCE(q.quiz_end_time, q.deadline_datetime),
-        COALESCE(c.course_name, tc.course_name),
-        COALESCE(c.course_code, tc.course_code),
+        COALESCE(cv.course_name, dcv.course_name, c.course_name, tc.course_name),
+        COALESCE(cv.course_code, dcv.course_code, c.course_code, tc.course_code),
         TRIM(CONCAT_WS(' ', NULLIF(TRIM(ua.f_name), ''), NULLIF(TRIM(ua.m_name), ''), NULLIF(TRIM(ua.l_name), ''))),
         'LMS',
         (SELECT COUNT(*) FROM obe_quiz_course_outcomes o
@@ -83,6 +87,8 @@ FROM (
     JOIN term t              ON t.id = cl.term_id
     LEFT JOIN course c       ON c.course_id = cl.course_id
     LEFT JOIN term_course tc ON tc.term_id = cl.term_id AND tc.course_id = cl.course_id
+    LEFT JOIN course_version cv  ON cv.id = tc.course_version_id
+    LEFT JOIN course_version dcv ON dcv.course_id = cl.course_id AND dcv.is_default = 1
     LEFT JOIN user_attributes ua ON ua.ukid = q.creator_ukid
     WHERE q.is_deleted = 0
       AND q.is_draft = 0
@@ -99,8 +105,8 @@ FROM (
         ca.created_timestamp,
         NULL,
         NULL,
-        COALESCE(c.course_name, tc.course_name),
-        COALESCE(c.course_code, tc.course_code),
+        COALESCE(cv.course_name, dcv.course_name, c.course_name, tc.course_name),
+        COALESCE(cv.course_code, dcv.course_code, c.course_code, tc.course_code),
         fac.faculty_names,
         'Offline/Direct Component',
         (SELECT COUNT(*) FROM obe_class_assessment_course_outcomes o
@@ -110,6 +116,8 @@ FROM (
     JOIN term t              ON t.id = cl.term_id
     LEFT JOIN course c       ON c.course_id = cl.course_id
     LEFT JOIN term_course tc ON tc.term_id = cl.term_id AND tc.course_id = cl.course_id
+    LEFT JOIN course_version cv  ON cv.id = tc.course_version_id
+    LEFT JOIN course_version dcv ON dcv.course_id = cl.course_id AND dcv.is_default = 1
     LEFT JOIN (
         SELECT cf.class_id,
                GROUP_CONCAT(DISTINCT TRIM(CONCAT_WS(' ', NULLIF(TRIM(ua.f_name), ''), NULLIF(TRIM(ua.m_name), ''), NULLIF(TRIM(ua.l_name), ''))) SEPARATOR ', ') AS faculty_names
