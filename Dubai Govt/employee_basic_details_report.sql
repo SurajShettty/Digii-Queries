@@ -5,18 +5,22 @@
 -- Qualification columns come from the most recently completed QUALIFICATION_DETAILS entry (highest qualification).
 -- Campus = campus-layer (layer 5) ancestor of the department's institution entity; College = department's parent entity
 --   (academic departments only, 'NA' for non-academic staff as per spec).
--- Academic period is the reporting period as of today, coded <acad_year_start><semester>0 with the academic year
---   starting in September: Sep-Dec -> 10 (Fall), Jan-May -> 20 (Spring), Jun-Aug -> 30 (Summer), e.g. Oct 2026 -> 202610.
---   To be mapped (CHEDS Semester Code list)
+-- Academic Period = current term of the user's college: latest regular (non-additional) term that has started (all-programme
+--   term of the college, else a term of one of the college's programmes).
+-- Academic periods are coded as <acad_year_start><term sequence>0, e.g. 2025-26 term 1 -> 202510. To be mapped (CHEDS Semester Code list)
 -- Columns marked "Enhancement Required" / "To Be Checked" have no source field yet; spec defaults are used where the spec gives one.
 -- MySQL 5.x compatible: no CTEs / window functions.
 SELECT
     c.university_code                                                   AS `Institution Code`,          -- CHEDS institution code to be mapped (KHDA Dict)
     c.college_name                                                      AS `Institution Name`,
-    (YEAR(CURDATE()) - (MONTH(CURDATE()) < 9)) * 100
-      + CASE WHEN MONTH(CURDATE()) >= 9 THEN 10
-             WHEN MONTH(CURDATE()) <= 5 THEN 20
-             ELSE 30 END                                                AS `Academic Period`,
+    (SELECT t.acad_year_start * 100 + t.sequence * 10                   -- current term of the college
+     FROM term t
+     WHERE ((t.all_programmes = 1 AND t.college_id = ua.college_id)
+            OR t.programme_id IN (SELECT pr.programme_id FROM programme pr WHERE pr.college_id = ua.college_id))
+       AND IFNULL(t.additional_term, 0) = 0
+       AND t.starts <= CURDATE()
+     ORDER BY t.starts DESC, t.id DESC
+     LIMIT 1)                                                           AS `Academic Period`,
     ua.registration_id                                                  AS `Employee ID`,
     999999999999999                                                     AS `Emirates ID`,               -- Enhancement Required (spec default when EID not available)
     NULL                                                                AS `Reason for missing EID`,    -- Enhancement Required (Reason for Missing EID list)

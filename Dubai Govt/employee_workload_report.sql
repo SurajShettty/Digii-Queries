@@ -2,9 +2,9 @@
 -- One row per staff (faculty / administrator) user per academic period:
 --   * every period in which the user taught a class (class_faculty, substitutes excluded), and
 --   * the current academic period for every active staff user (non-teaching staff get 0 teaching figures).
--- Academic periods are coded as <acad_year_start><term sequence>0, e.g. 2025-26 term 1 -> 202510; the current period uses
---   the same coding with the academic year starting in September (Sep-Dec -> 10, Jan-May -> 20, Jun-Aug -> 30).
---   To be mapped (CHEDS Semester Code list)
+-- Current academic period = current term of the user's college: latest regular (non-additional) term that has started
+--   (all-programme term of the college, else a term of one of the college's programmes).
+-- Academic periods are coded as <acad_year_start><term sequence>0, e.g. 2025-26 term 1 -> 202510. To be mapped (CHEDS Semester Code list)
 -- Teaching figures are counted per course, not per class: the lecture / tutorial / practical classes of one course taught
 --   by a faculty member in a period count as one course, and its students are the distinct students across those classes.
 --   Course credits = term course snapshot, else term / default course version, else course; credits > 0 -> credited course.
@@ -90,10 +90,14 @@ FROM (
         -- current academic period placeholder for every active staff user
         SELECT
             ua.ukid,
-            (YEAR(CURDATE()) - (MONTH(CURDATE()) < 9)) * 100
-              + CASE WHEN MONTH(CURDATE()) >= 9 THEN 10
-                     WHEN MONTH(CURDATE()) <= 5 THEN 20
-                     ELSE 30 END,
+            (SELECT t.acad_year_start * 100 + t.sequence * 10           -- current term of the college
+             FROM term t
+             WHERE ((t.all_programmes = 1 AND t.college_id = ua.college_id)
+                    OR t.programme_id IN (SELECT pr.programme_id FROM programme pr WHERE pr.college_id = ua.college_id))
+               AND IFNULL(t.additional_term, 0) = 0
+               AND t.starts <= CURDATE()
+             ORDER BY t.starts DESC, t.id DESC
+             LIMIT 1),
             NULL, NULL, NULL, NULL
         FROM user_attributes ua
         JOIN authenticator a ON a.ukid = ua.ukid AND a.is_active = 1
