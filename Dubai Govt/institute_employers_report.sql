@@ -2,8 +2,7 @@
 -- One row per employer contact person (placement_organization_contact) of each active placement organisation, per academic year (taken from the placement cycles the organisation took part in).
 -- Organisations with no contact person are still listed (employer name/position/email will be NULL).
 -- Columns marked "Enhancement Required" / "To Be Checked" have no source field yet and are returned as NULL.
--- Filter: {{academic_period}} = Academic Period code from academic_period_filter.sql, e.g. 202510; the report lists
---   the academic year of that period (2025-26 -> 202526).
+-- Filter: {{academic_year}} = Academic Year code from academic_period_filter.sql, e.g. 202526 (2025-26).
 SELECT DISTINCT                                                         -- cycles mapping to the same academic year collapse to one row
     c.university_code                                                   AS `Institution Code`,      -- CHEDS institution code to be mapped (KHDA Dict)
     c.college_name                                                      AS `Institution Name`,
@@ -41,5 +40,5 @@ LEFT JOIN college c                         ON c.college_id = po.college_id
 WHERE IFNULL(po.is_deleted, 0) = 0
   AND po.organisation_status = 'ACTIVE'
   AND YEAR(pcy.start_date) * 100 + MOD(YEAR(COALESCE(pcy.end_date, pcy.start_date + INTERVAL 1 YEAR)), 100)
-      = FLOOR({{academic_period}} / 100) * 100 + MOD(FLOOR({{academic_period}} / 100) + 1, 100)
+      = {{academic_year}}
 ORDER BY `Company Name`, `Name of the employer`;

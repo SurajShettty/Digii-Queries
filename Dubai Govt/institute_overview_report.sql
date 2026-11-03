@@ -7,17 +7,26 @@
 -- Infrastructure counts follow the spec's short-term solution: non archived infrastructure of the college, matched by
 --   type name (Classroom, Laboratory, Library, Research Centre, Activity, Career, Sport / Gym / Swimming pool, Parking).
 --   Types that are not set up yet (Research Centre, Career, Activity, Parking) report N / 0 until they are created.
--- Academic Year = academic year of the selected academic period. Coded <start year><end year YY>, e.g. 2026-27 -> 202627.
--- Drop-out rate is measured on the regular period before the selected one.
--- Filter: {{academic_period}} = Academic Period code from academic_period_filter.sql, e.g. 202510.
+-- Academic Year = academic year of the college's current term: latest regular (non-additional) term that has started
+--   (all-programme term of the college, else a term of one of the college's programmes); falls back to the academic year
+--   starting in September when the college has no term. Coded <start year><end year YY>, e.g. 2026-27 -> 202627.
 -- Columns marked "Enhancement Required" have no source field yet (digii status "New DB Table Required") and are NULL.
 -- Columns marked "To Be Checked" are derived values that need to be confirmed against the CHEDS definition / code list.
 -- MySQL 5.x compatible: no CTEs / window functions.
 SELECT
     c.university_code                                                   AS `Institution Code`,              -- CHEDS institution code to be mapped (KHDA Dict)
     c.college_name                                                      AS `Institution Name`,
-    FLOOR({{academic_period}} / 100) * 100
-      + MOD(FLOOR({{academic_period}} / 100) + 1, 100)                  AS `Academic Year`,                 -- academic year of the selected period
+    COALESCE(
+        (SELECT t.acad_year_start * 100 + MOD(t.acad_year_start + 1, 100) -- academic year of the current term of the college
+         FROM term t
+         WHERE ((t.all_programmes = 1 AND t.college_id = c.college_id)
+                OR t.programme_id IN (SELECT pr.programme_id FROM programme pr WHERE pr.college_id = c.college_id))
+           AND IFNULL(t.additional_term, 0) = 0
+           AND t.starts <= CURDATE()
+         ORDER BY t.starts DESC, t.id DESC
+         LIMIT 1),
+        (YEAR(CURDATE()) - (MONTH(CURDATE()) < 9)) * 100                -- no term set up: academic year starting in September
+          + MOD(YEAR(CURDATE()) - (MONTH(CURDATE()) < 9) + 1, 100))     AS `Academic Year`,
     c.financial_status                                                  AS `Institution Type`,              -- To Be Checked: Institutional Settings financial status (PRIVATE / ...), map to the CHEDS Institution Type list (e.g. PR)
     CASE WHEN c.institution_type = 'CO_EDUCATION'                       THEN 'CE'
          WHEN c.institution_type IN ('MALE', 'BOYS', 'MEN')             THEN 'M'
@@ -97,7 +106,7 @@ LEFT JOIN (
     GROUP BY ua.college_id
 ) fc ON fc.college_id = c.college_id
 LEFT JOIN (
-    -- students enrolled in courses in the regular term before the selected period and how many of them have left since
+    -- students enrolled in courses in the previous regular term and how many of them have left since
     SELECT x.college_id, COUNT(*) AS enrolled, SUM(x.has_left) AS leavers
     FROM (
         SELECT DISTINCT
@@ -109,10 +118,10 @@ LEFT JOIN (
         JOIN ems_examination ee  ON ee.id = spe.exam_id
         JOIN term t              ON t.id = ee.term_id AND IFNULL(t.additional_term, 0) = 0
         JOIN (
-            -- latest regular period before the selected one that has exam enrolments
+            -- latest regular term that has ended and has exam enrolments
             SELECT MAX(t2.acad_year_start * 100 + t2.sequence * 10) AS period_code
             FROM term t2
-            WHERE t2.acad_year_start * 100 + t2.sequence * 10 < {{academic_period}} AND IFNULL(t2.additional_term, 0) = 0
+            WHERE DATE(t2.ends) < CURDATE() AND IFNULL(t2.additional_term, 0) = 0
               AND EXISTS (SELECT 1
                           FROM ems_examination ee2
                           JOIN ems_student_programme_enrollment spe2 ON spe2.exam_id = ee2.id
