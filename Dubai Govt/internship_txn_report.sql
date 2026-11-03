@@ -6,6 +6,8 @@
 -- Start Date = job joining date, falling back to the application date (date the student was selected).
 -- Internship Status (calculated from start date; end date not captured): CN = offer rejected, PL = not yet started, ON = started.
 -- Columns marked "Custom Field - Development Required" have no source field yet and are returned as NULL.
+-- Filter: {{last_n_hours}} = only internships added or updated in the last N hours, e.g. 24: application created /
+--   modified, job modified or organisation modified.
 -- MySQL 5.x compatible: no CTEs / window functions.
 SELECT
     (SELECT t.acad_year_start * 100 + t.sequence * 10
@@ -48,7 +50,11 @@ SELECT
     NULL                                                                AS `Payment Organizer`,               -- Custom Field - Development Required
     NULL                                                                AS `Organization Trade License`,      -- Custom Field - Development Required
     NULL                                                                AS `Organization Address`,            -- Custom Field - Development Required
-    NULL                                                                AS `Organization Emirate`             -- Custom Field - Development Required
+    NULL                                                                AS `Organization Emirate`,            -- Custom Field - Development Required
+    DATE_FORMAT(GREATEST(COALESCE(pa.created_timestamp, '1970-01-01'),
+                         COALESCE(pa.modified_timestamp, '1970-01-01'),
+                         COALESCE(j.modified_timestamp, '1970-01-01'),
+                         COALESCE(po.modified_timestamp, '1970-01-01')), '%d-%m-%Y %H:%i:%s') AS `Last Updated`  -- latest of application, job and organisation changes
 FROM placement_application pa
 JOIN placement_job j                        ON j.id = pa.job_id AND IFNULL(j.is_deleted, 0) = 0
 JOIN placement_types ptp                    ON ptp.id = j.placement_type_id AND ptp.type = 'INTERNSHIP'
@@ -60,4 +66,8 @@ LEFT JOIN programme p                       ON p.programme_id = sp.programme_id
 LEFT JOIN placement_organization po         ON po.id = j.organization_id
 LEFT JOIN placement_organization_sector s   ON s.id = po.sector_id
 WHERE IFNULL(pa.is_deleted, 0) = 0
+  AND GREATEST(COALESCE(pa.created_timestamp, '1970-01-01'),                  -- added or updated in the last N hours
+               COALESCE(pa.modified_timestamp, '1970-01-01'),
+               COALESCE(j.modified_timestamp, '1970-01-01'),
+               COALESCE(po.modified_timestamp, '1970-01-01')) >= NOW() - INTERVAL {{last_n_hours}} HOUR
 ORDER BY `Academic Period` DESC, `Person Id`, `Internship Organization`;

@@ -9,6 +9,8 @@
 -- falls back to the term running on the report date when the student has no courses yet.
 -- Academic periods are coded as <acad_year_start><term sequence>0, e.g. 2025-26 term 1 -> 202510. To be mapped (KHDA Dict)
 -- Columns marked "Enhancement Required" / "To Be Checked" have no (reliable) source field yet.
+-- Filter: {{last_n_hours}} = only persons added or updated in the last N hours, e.g. 24: user created / updated, student
+--   profile modified (incl. status change), alumni profile created / updated, or one of the custom fields below modified.
 -- MySQL 5.x compatible: no CTEs / window functions.
 SELECT
     COALESCE(ct.acad_year_start * 100 + ct.sequence * 10,
@@ -96,7 +98,12 @@ SELECT
     CASE WHEN st.rtype = 'G'
          THEN NULLIF(em.sector, '') END                                 AS `Employment Sector`,             -- To Be Checked: organisation sector; code to be mapped (Private / Federal Government / ...)
     CASE WHEN st.rtype = 'G'
-         THEN NULLIF(em.designation, '') END                            AS `Employment Position`
+         THEN NULLIF(em.designation, '') END                            AS `Employment Position`,
+    DATE_FORMAT(GREATEST(COALESCE(ua.created_timestamp, '1970-01-01'),
+                         COALESCE(ua.updated_timestamp, '1970-01-01'),
+                         COALESCE(sp.modified_timestamp, '1970-01-01'),
+                         COALESCE(ap.updated_timestamp, ap.created_timestamp, '1970-01-01'),
+                         COALESCE(cf.last_updated, '1970-01-01')), '%d-%m-%Y %H:%i:%s') AS `Last Updated`  -- latest of user added / updated, student / alumni profile and custom field changes
 FROM (
     -- every student and graduate with the record type
     SELECT u.ukid,
@@ -120,7 +127,8 @@ LEFT JOIN (
     -- student profile custom fields; list fields store the list item id
     SELECT v.ukid,
            MAX(CASE WHEN f.identifier = 'PREVIOUS_SCHOOL_COLLEGE_NAME' THEN NULLIF(TRIM(v.value), '') END)  AS previous_institution,
-           MAX(CASE WHEN f.identifier = 'STUDENT_REASON_FOR_LEAVING_UNIVERSITY_STATUS_LIST' THEN li.name END) AS leaving_reason
+           MAX(CASE WHEN f.identifier = 'STUDENT_REASON_FOR_LEAVING_UNIVERSITY_STATUS_LIST' THEN li.name END) AS leaving_reason,
+           MAX(v.modified_timestamp)                                                                      AS last_updated
     FROM user_details_master_field_value v
     JOIN student_profile sp2                        ON sp2.ukid = v.ukid
     JOIN user_details_master_field f                ON f.id = v.field_id
@@ -237,4 +245,9 @@ LEFT JOIN (
     LEFT JOIN placement_organization_sector ps ON ps.id = s.parent_id
     GROUP BY pa.ukid
 ) em ON em.ukid = st.ukid
+WHERE GREATEST(COALESCE(ua.created_timestamp, '1970-01-01'),                  -- added or updated in the last N hours
+               COALESCE(ua.updated_timestamp, '1970-01-01'),
+               COALESCE(sp.modified_timestamp, '1970-01-01'),
+               COALESCE(ap.updated_timestamp, ap.created_timestamp, '1970-01-01'),
+               COALESCE(cf.last_updated, '1970-01-01')) >= NOW() - INTERVAL {{last_n_hours}} HOUR
 ORDER BY `Record Type`, `Academic Period` DESC, `Person Id`;

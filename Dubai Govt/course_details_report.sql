@@ -12,6 +12,8 @@
 --   Evaluation score      = average submitted course feedback (single-select answers), rescaled to 0-5
 --   Skills description    = course description
 -- Columns marked "Custom field - New development" have no source field yet.
+-- Filter: {{last_n_hours}} = only course sections added or updated in the last N hours, e.g. 24: class or term course
+--   modified.
 -- MySQL 5.x compatible: no CTEs / window functions.
 SELECT
     p.programme_name                                                    AS `Program Name`,
@@ -45,7 +47,9 @@ SELECT
     IFNULL(ev.eval_students, 0)                                         AS `Course Evaluation Student Count`,
     LEFT(COALESCE(NULLIF(TRIM(tc.description), ''), NULLIF(TRIM(tcv.description), ''),
                   NULLIF(TRIM(dcv.description), ''), NULLIF(TRIM(co.description), '')), 500) AS `Skills Description`,
-    NULL                                                                AS `EMS Flag`                   -- Custom field - New development (course)
+    NULL                                                                AS `EMS Flag`,                  -- Custom field - New development (course)
+    DATE_FORMAT(GREATEST(COALESCE(cl.modified_timestamp, '1970-01-01'),
+                         COALESCE(tc.modified_timestamp, '1970-01-01')), '%d-%m-%Y %H:%i:%s') AS `Last Updated`  -- latest of class and term course changes
 FROM class cl
 JOIN term t                                  ON t.id = cl.term_id
 LEFT JOIN course co                          ON co.course_id = cl.course_id
@@ -132,4 +136,6 @@ LEFT JOIN (
           HAVING MAX(option_score) > 0) qm     ON qm.feedback_question_id = o.feedback_question_id
     GROUP BY fcft.class_id
 ) ev ON ev.class_id = cl.id
+WHERE GREATEST(COALESCE(cl.modified_timestamp, '1970-01-01'),                 -- added or updated in the last N hours
+               COALESCE(tc.modified_timestamp, '1970-01-01')) >= NOW() - INTERVAL {{last_n_hours}} HOUR
 ORDER BY `Academic Period` DESC, `Program Name`, `Course Code`, `Course Reference Number`;

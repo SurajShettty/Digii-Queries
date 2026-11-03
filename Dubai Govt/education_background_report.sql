@@ -10,6 +10,8 @@
 -- Equivalency indicators are reduced to their code letter (Yes -> Y, Mutual -> M, Rejected -> R, Applied -> A,
 --   Not Required / No -> N, Unknown -> U, Transferred -> T); other values are reported as NULL.
 -- Columns marked "To Be Checked" need the value mapped to the spec's code list.
+-- Filter: {{last_n_hours}} = only persons added or updated in the last N hours, e.g. 24: user created / updated, student
+--   profile modified, one of the custom fields below modified, or the reported qualification entry modified.
 -- MySQL 5.x compatible: no CTEs / window functions.
 SELECT
     COALESCE(NULLIF(TRIM(sp.registration_id), ''),
@@ -70,7 +72,12 @@ SELECT
           AND LEFT(COALESCE(q.equivalency, cf.emp_equivalency), 1) IN ('Y', 'R', 'A', 'N', 'U', 'T')
          THEN LEFT(COALESCE(q.equivalency, cf.emp_equivalency), 1) END  AS `Employee Equivalency Indicator`, -- Custom field EQUIVALENCY_INDICATOR (qualification entry) / EMPLOYEE_EQUIVALENCY_INDICATOR
     CASE WHEN ua.user_type <> 'student'
-         THEN COALESCE(q.equivalency_number, cf.emp_equivalency_number) END AS `Employee Equivalency Number` -- Custom field EQUIVALENCY_NUMBER (qualification entry) / EMPLOYEE_EQUIVALENCY_NUMBER
+         THEN COALESCE(q.equivalency_number, cf.emp_equivalency_number) END AS `Employee Equivalency Number`, -- Custom field EQUIVALENCY_NUMBER (qualification entry) / EMPLOYEE_EQUIVALENCY_NUMBER
+    DATE_FORMAT(GREATEST(COALESCE(ua.created_timestamp, '1970-01-01'),
+                         COALESCE(ua.updated_timestamp, '1970-01-01'),
+                         COALESCE(sp.modified_timestamp, '1970-01-01'),
+                         COALESCE(cf.last_updated, '1970-01-01'),
+                         COALESCE(q.last_updated, '1970-01-01')), '%d-%m-%Y %H:%i:%s') AS `Last Updated`  -- latest of user added / updated, student profile, custom field and qualification entry changes
 FROM user_attributes ua
 JOIN authenticator a              ON a.ukid = ua.ukid AND a.is_active = 1
 LEFT JOIN student_profile sp      ON sp.ukid = ua.ukid AND ua.user_type = 'student'
@@ -108,7 +115,8 @@ LEFT JOIN (
         MAX(CASE WHEN f.identifier = 'IELTS_COMPOSITE_SCORE'                       THEN NULLIF(TRIM(COALESCE(li.name, v.value)), '') END) AS ielts_score,
         MAX(CASE WHEN f.identifier = 'TOEFL_COMPOSITE_SCORE'                       THEN NULLIF(TRIM(COALESCE(li.name, v.value)), '') END) AS toefl_score,
         MAX(CASE WHEN f.identifier = 'GMAT_COMPOSITE_SCORE'                        THEN NULLIF(TRIM(COALESCE(li.name, v.value)), '') END) AS gmat_score,
-        MAX(CASE WHEN f.identifier = 'GRE_COMPOSITE_SCORE'                         THEN NULLIF(TRIM(COALESCE(li.name, v.value)), '') END) AS gre_score
+        MAX(CASE WHEN f.identifier = 'GRE_COMPOSITE_SCORE'                         THEN NULLIF(TRIM(COALESCE(li.name, v.value)), '') END) AS gre_score,
+        MAX(v.modified_timestamp)                                                                                                          AS last_updated
     FROM user_details_master_field_value v
     JOIN user_details_master_field f                ON f.id = v.field_id
     LEFT JOIN user_details_master_field_list_item li ON f.element = 'list' AND li.field_id = f.id AND li.id = v.value
@@ -140,7 +148,8 @@ LEFT JOIN (
             MAX(CASE WHEN f.identifier = 'COMPLETED_ON'             THEN NULLIF(TRIM(v.value), '') END)                    AS completed_on,
             MAX(CASE WHEN f.identifier = 'QUALIFICATION_COUNTRY'    THEN NULLIF(TRIM(COALESCE(li.name, v.value)), '') END) AS country,
             MAX(CASE WHEN f.identifier = 'EQUIVALENCY_INDICATOR'    THEN UPPER(NULLIF(TRIM(COALESCE(li.name, v.value)), '')) END) AS equivalency,
-            MAX(CASE WHEN f.identifier = 'EQUIVALENCY_NUMBER'       THEN NULLIF(TRIM(COALESCE(li.name, v.value)), '') END) AS equivalency_number
+            MAX(CASE WHEN f.identifier = 'EQUIVALENCY_NUMBER'       THEN NULLIF(TRIM(COALESCE(li.name, v.value)), '') END) AS equivalency_number,
+            MAX(v.modified_timestamp)                                                                                   AS last_updated
         FROM user_details_master_cluster_entry_field_value v
         JOIN user_details_master_field f                ON f.id = v.field_id
         LEFT JOIN user_details_master_field_list_item li ON f.element = 'list' AND li.field_id = f.id AND li.id = v.value
@@ -163,4 +172,9 @@ LEFT JOIN (
     ) latest ON latest.ukid = qe.ukid AND latest.cluster_entry_id = qe.cluster_entry_id
 ) q ON q.ukid = ua.ukid AND ua.user_type <> 'student'
 WHERE ua.user_type IN ('student', 'faculty', 'administrator')
+  AND GREATEST(COALESCE(ua.created_timestamp, '1970-01-01'),                  -- added or updated in the last N hours
+               COALESCE(ua.updated_timestamp, '1970-01-01'),
+               COALESCE(sp.modified_timestamp, '1970-01-01'),
+               COALESCE(cf.last_updated, '1970-01-01'),
+               COALESCE(q.last_updated, '1970-01-01')) >= NOW() - INTERVAL {{last_n_hours}} HOUR
 ORDER BY `Person Type Flag`, `Person Id`;

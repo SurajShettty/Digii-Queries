@@ -6,6 +6,8 @@
 --   column comments (EMIRATES_ID, GCC_ID, ...) and stay NULL until those fields are created with these identifiers.
 -- Dates are reported as DD-MM-YYYY (spec: Day Month Year, size 10).
 -- Columns marked "To Be Checked" need the value mapped to the spec's code list.
+-- Filter: {{last_n_hours}} = only persons added or updated in the last N hours, e.g. 24: user created / updated, student /
+--   faculty / admin profile modified, or one of the custom fields below modified.
 -- MySQL 5.x compatible: no CTEs / window functions.
 SELECT
     COALESCE(NULLIF(TRIM(sp.registration_id), ''),
@@ -45,7 +47,11 @@ SELECT
            OR cf.disability_type IS NOT NULL
          THEN 'Y' ELSE 'N' END                                          AS `POD Indicator`,
     COALESCE(cf.pod_category, cf.disability_type)                       AS `POD Category`,                  -- Custom field POD_CATEGORY, falls back to Type of Disability
-    cf.orcid                                                            AS `ORCID`                          -- Custom field ORCID (researchers / faculty)
+    cf.orcid                                                            AS `ORCID`,                         -- Custom field ORCID (researchers / faculty)
+    DATE_FORMAT(GREATEST(COALESCE(ua.created_timestamp, '1970-01-01'),
+                         COALESCE(ua.updated_timestamp, '1970-01-01'),
+                         COALESCE(sp.modified_timestamp, fp.modified_timestamp, ap.modified_timestamp, '1970-01-01'),
+                         COALESCE(cf.last_updated, '1970-01-01')), '%d-%m-%Y %H:%i:%s') AS `Last Updated`  -- latest of user added / updated, profile and custom field changes
 FROM user_attributes ua
 JOIN authenticator a              ON a.ukid = ua.ukid AND a.is_active = 1
 LEFT JOIN student_profile sp      ON sp.ukid = ua.ukid AND ua.user_type = 'student'
@@ -75,7 +81,8 @@ LEFT JOIN (
                   AND UPPER(TRIM(COALESCE(li.name, v.value))) NOT IN ('', 'NA', 'N/A', 'NO', 'NONE') THEN NULLIF(TRIM(COALESCE(li.name, v.value)), '') END)  AS disability_type,
         MAX(CASE WHEN f.identifier = 'POD_CATEGORY'
                   AND UPPER(TRIM(COALESCE(li.name, v.value))) NOT IN ('', 'NA', 'N/A', 'NO', 'NONE') THEN NULLIF(TRIM(COALESCE(li.name, v.value)), '') END)  AS pod_category,
-        MAX(CASE WHEN f.identifier = 'ORCID'                             THEN NULLIF(TRIM(COALESCE(li.name, v.value)), '') END) AS orcid
+        MAX(CASE WHEN f.identifier = 'ORCID'                             THEN NULLIF(TRIM(COALESCE(li.name, v.value)), '') END) AS orcid,
+        MAX(v.modified_timestamp)                                                                                                AS last_updated
     FROM user_details_master_field_value v
     JOIN user_details_master_field f                ON f.id = v.field_id
     LEFT JOIN user_details_master_field_list_item li ON f.element = 'list' AND li.field_id = f.id AND li.id = v.value
@@ -87,4 +94,8 @@ LEFT JOIN (
     GROUP BY v.ukid
 ) cf ON cf.ukid = ua.ukid
 WHERE ua.user_type IN ('student', 'faculty', 'administrator')
+  AND GREATEST(COALESCE(ua.created_timestamp, '1970-01-01'),                  -- added or updated in the last N hours
+               COALESCE(ua.updated_timestamp, '1970-01-01'),
+               COALESCE(sp.modified_timestamp, fp.modified_timestamp, ap.modified_timestamp, '1970-01-01'),
+               COALESCE(cf.last_updated, '1970-01-01')) >= NOW() - INTERVAL {{last_n_hours}} HOUR
 ORDER BY `Person Type Flag`, `Person Id`;
