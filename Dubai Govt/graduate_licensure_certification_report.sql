@@ -5,6 +5,7 @@
 --   MOOC    : student profile custom field groups MOOC_CERTIFICATE1..5 (name, issuing institute, status of completion,
 --             end date, certificate identification no.)
 -- Academic periods are coded as <acad_year_start><term sequence>0, e.g. 2025-26 term 1 -> 202510. To be mapped (KHDA Dict)
+-- Filter: {{academic_period}} = Graduating Academic Period code from academic_period_filter.sql, e.g. 202510.
 -- Licence / Certificate award status: IP = in progress, EP = passed / awarded, EX = failed, NA = not required, UN = unknown.
 -- Columns marked "Enhancement Required" / "To Be Checked" have no (reliable) source field yet.
 -- MySQL 5.x compatible: no CTEs / window functions.
@@ -126,4 +127,5 @@ LEFT JOIN (
     ) et
     GROUP BY et.ukid
 ) tr ON tr.ukid = ap.ukid
-ORDER BY `Graduating Academic Period` DESC, `Graduate ID`, gc.src, gc.sort_key;
+WHERE tr.last_period = {{academic_period}}
+ORDER BY `Graduate ID`, gc.src, gc.sort_key;

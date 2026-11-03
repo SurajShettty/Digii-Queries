@@ -1,10 +1,9 @@
 -- Employee Workload report (CHEDS/KHDA format).
--- One row per staff (faculty / administrator) user per academic period:
---   * every period in which the user taught a class (class_faculty, substitutes excluded), and
---   * the current academic period for every active staff user (non-teaching staff get 0 teaching figures).
--- Current academic period = current term of the user's college: latest regular (non-additional) term that has started
---   (all-programme term of the college, else a term of one of the college's programmes).
+-- One row per staff (faculty / administrator) user for the selected academic period:
+--   * every user who taught a class in that period (class_faculty, substitutes excluded), and
+--   * every other active staff user (non-teaching staff get 0 teaching figures).
 -- Academic periods are coded as <acad_year_start><term sequence>0, e.g. 2025-26 term 1 -> 202510. To be mapped (CHEDS Semester Code list)
+-- Filter: {{academic_period}} = Academic Period code from academic_period_filter.sql, e.g. 202510.
 -- Teaching figures are counted per course, not per class: the lecture / tutorial / practical classes of one course taught
 --   by a faculty member in a period count as one course, and its students are the distinct students across those classes.
 --   Course credits = term course snapshot, else term / default course version, else course; credits > 0 -> credited course.
@@ -83,21 +82,15 @@ FROM (
         LEFT JOIN class_student cs       ON cs.class_id = cl.id
         WHERE IFNULL(cf.is_substitute, 0) = 0
           AND cl.course_id IS NOT NULL
+          AND t.acad_year_start * 100 + t.sequence * 10 = {{academic_period}}
         GROUP BY cf.faculty_id, academic_period, cl.course_id
 
         UNION ALL
 
-        -- current academic period placeholder for every active staff user
+        -- selected academic period row for every active staff user
         SELECT
             ua.ukid,
-            (SELECT t.acad_year_start * 100 + t.sequence * 10           -- current term of the college
-             FROM term t
-             WHERE ((t.all_programmes = 1 AND t.college_id = ua.college_id)
-                    OR t.programme_id IN (SELECT pr.programme_id FROM programme pr WHERE pr.college_id = ua.college_id))
-               AND IFNULL(t.additional_term, 0) = 0
-               AND t.starts <= CURDATE()
-             ORDER BY t.starts DESC, t.id DESC
-             LIMIT 1),
+            {{academic_period}},
             NULL, NULL, NULL, NULL
         FROM user_attributes ua
         JOIN authenticator a ON a.ukid = ua.ukid AND a.is_active = 1
@@ -150,6 +143,7 @@ LEFT JOIN (
         JOIN programme_types pt          ON pt.id = p.programme_type_id
         LEFT JOIN class_student cs       ON cs.class_id = cl.id
         WHERE IFNULL(cf.is_substitute, 0) = 0
+          AND t.acad_year_start * 100 + t.sequence * 10 = {{academic_period}}
         GROUP BY cf.faculty_id, academic_period, pt.name
     ) lv
     GROUP BY lv.ukid, lv.academic_period
@@ -183,4 +177,4 @@ LEFT JOIN (
     WHERE NULLIF(TRIM(v.value), '') IS NOT NULL
     GROUP BY v.ukid
 ) pub ON pub.ukid = ua.ukid
-ORDER BY `Academic Period` DESC, `Institution Name`, `Department name`, `Employee ID`;
+ORDER BY `Institution Name`, `Department name`, `Employee ID`;

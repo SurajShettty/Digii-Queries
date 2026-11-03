@@ -4,6 +4,7 @@
 -- Academic Period = term (of the student's programme, else an all-programme term) running on the internship start date;
 -- start date = job joining date, falling back to the date the student was selected (application last modified).
 -- Academic periods are coded as <acad_year_start><term sequence>0, e.g. 2025-26 term 1 -> 202510. To be mapped (KHDA Dict)
+-- Filter: {{academic_period}} = Academic Period code from academic_period_filter.sql, e.g. 202510.
 -- Internship Status: CN = offer rejected by student, PL = not yet started (no / future joining date), ON = started.
 -- Completion (CM) is not captured.
 -- Columns marked "Enhancement Required" / "To Be Checked" have no (reliable) source field yet.
@@ -114,4 +115,5 @@ LEFT JOIN (
     GROUP BY v.ukid
 ) cf ON cf.ukid = sp.ukid
 WHERE IFNULL(pa.is_deleted, 0) = 0
-ORDER BY `Academic Period` DESC, `Student ID`, `Internship Organization`;
+HAVING `Academic Period` = {{academic_period}}
+ORDER BY `Student ID`, `Internship Organization`;

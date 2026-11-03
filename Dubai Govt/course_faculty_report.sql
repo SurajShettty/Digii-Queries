@@ -3,6 +3,7 @@
 -- A class mapped to several programmes is listed once per programme. Programme comes from the class's programme batch
 -- sections, else from the programmes of the students added to the class (custom classes), else from the class's term.
 -- Academic periods are coded as <acad_year_start><term sequence>0, e.g. 2025-26 term 1 -> 202510. To be mapped (CHEDS Semester Code list)
+-- Filter: {{academic_period}} = Academic Period code from academic_period_filter.sql, e.g. 202510.
 -- Columns marked "Enhancement Required" / "To Be Checked" have no source field yet.
 -- MySQL 5.x compatible: no CTEs / window functions.
 SELECT DISTINCT
@@ -50,4 +51,5 @@ LEFT JOIN (
 LEFT JOIN programme p                        ON p.programme_id = COALESCE(cps.programme_id, cl.programme_id, t.programme_id)
 LEFT JOIN college c                          ON c.college_id = COALESCE(p.college_id, t.college_id)
 WHERE IFNULL(cf.is_substitute, 0) = 0
+  AND t.acad_year_start * 100 + t.sequence * 10 = {{academic_period}}
 ORDER BY `Academic Period` DESC, `Program Code`, `Course Code`, `Course Ref Number`, `Faculty/Staff ID`;

@@ -3,6 +3,7 @@
 -- Programme comes from the class's programme batch sections, else from the programmes of the students added to the class
 -- (custom classes), else from the class's term, else from curriculum mapping of the course.
 -- Academic periods are coded as <acad_year_start><term sequence>0, e.g. 2025-26 term 1 -> 202510. To be mapped (CHEDS Semester Code list)
+-- Filter: {{academic_period}} = Academic Period code from academic_period_filter.sql, e.g. 202510.
 --   Course credit hours   = term course credits, else term / default course version credits
 --   Course contact hours  = learning hours of the course version's components, else scheduled (non-cancelled) lesson hours of the class
 --   Course lab            = credits of the Lab / Practical components of the course version
@@ -162,4 +163,5 @@ LEFT JOIN (
     FROM class_student
     GROUP BY class_id
 ) st ON st.class_id = cl.id
+WHERE t.acad_year_start * 100 + t.sequence * 10 = {{academic_period}}
 ORDER BY `Course Academic Period` DESC, `Course Program Code`, `Course code`, `Course CRN`;

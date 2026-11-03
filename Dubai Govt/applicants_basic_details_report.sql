@@ -6,6 +6,7 @@
 --   Number of New Enrollments     = applications in Registered Student (status ACCEPTED, i.e. converted to student)
 -- Academic periods are coded as <acad_year_start><term sequence>0 of the first term of the admitted batch, e.g. 2025-26 term 1 -> 202510;
 -- batches with no term configured fall back to <batch>10. To be mapped (CHEDS Semester Code list)
+-- Filter: {{academic_period}} = Academic Period code from academic_period_filter.sql, e.g. 202510.
 -- Columns marked "Enhancement Required" / "To Be Checked" have no source field yet.
 -- MySQL 5.x compatible: no CTEs / window functions.
 SELECT
@@ -42,4 +43,5 @@ LEFT JOIN (
     GROUP BY ukid, student_admission_category_id
 ) ol ON ol.ukid = s.ukid AND ol.student_admission_category_id = s.student_admission_category_id
 GROUP BY c.college_id, c.university_code, c.college_name, `Academic Period`, pt.name, p.programme_id, p.programme_name
-ORDER BY `Academic Period` DESC, `Degrees / Program Levels`, `Area of Specialization`;
+HAVING `Academic Period` = {{academic_period}}
+ORDER BY `Degrees / Program Levels`, `Area of Specialization`;

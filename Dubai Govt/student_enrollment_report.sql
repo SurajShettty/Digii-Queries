@@ -1,24 +1,19 @@
 -- Students - Enrollment report (CHEDS/KHDA format).
 -- One row per currently enrolled student = student profile with no custom student status (not Withdrawn / Dropout / etc.)
 -- who has not been converted to alumni (leavers and graduates are reported in the Attrition / Graduates reports).
--- Academic Period = latest regular term in which the student has courses (course registration or exam enrolment);
--- falls back to the term running on the report date when the student has no courses yet.
+-- Academic Period = the selected period: only students with courses (course registration or exam enrolment) in that period
+-- are listed; terms after the selected period are ignored.
 -- "Till last academic period" figures only count terms that started before that Academic Period.
 -- Personal / prior-education details come from student_profile, falling back to the student profile custom fields
 -- (user_details_master_field_value).
 -- Academic periods are coded as <acad_year_start><term sequence>0, e.g. 2025-26 term 1 -> 202510. To be mapped (KHDA Dict)
+-- Filter: {{academic_period}} = Academic Period code from academic_period_filter.sql, e.g. 202510.
 -- Columns marked "Enhancement Required" / "To Be Checked" have no (reliable) source field yet.
 -- MySQL 5.x compatible: no CTEs / window functions.
 SELECT
     c.university_code                                                   AS `Institution Code`,              -- CHEDS institution code to be mapped (KHDA Dict)
     c.college_name                                                      AS `Institution Name`,
-    COALESCE(ct.acad_year_start * 100 + ct.sequence * 10,
-             (SELECT t.acad_year_start * 100 + t.sequence * 10          -- term running on the report date (programme term preferred over all-programme term)
-              FROM term t
-              WHERE CURDATE() BETWEEN DATE(t.starts) AND DATE(t.ends)
-                AND (t.programme_id = p.programme_id OR (t.all_programmes = 1 AND t.college_id = c.college_id))
-              ORDER BY (t.programme_id = p.programme_id) DESC, t.starts DESC
-              LIMIT 1))                                                 AS `Academic Period`,
+    ct.acad_year_start * 100 + ct.sequence * 10                         AS `Academic Period`,
     COALESCE(NULLIF(TRIM(sp.registration_id), ''), ua.registration_id)  AS `Student ID`,
     NULL                                                                AS `Al Khulasa`,                    -- Enhancement Required (UAE nationals only, else 'NA')
     '999999999999999'                                                   AS `Emirates ID`,                   -- Enhancement Required (999999999999999 when not available)
@@ -223,8 +218,8 @@ LEFT JOIN (
     GROUP BY pss.ukid
 ) ss ON ss.ukid = sp.ukid
 LEFT JOIN (
-    -- per student: first / current term and credits. Current term = latest regular term (supplementary terms only when
-    -- the student has no regular term); its credits are picked from the per-term rows via the MAX(CONCAT(sort key, value)) trick.
+    -- per student: first / current term and credits, up to the selected period. Current term = latest regular term
+    -- (supplementary terms only when the student has no regular term); its credits are picked from the per-term rows via the MAX(CONCAT(sort key, value)) trick.
     -- Key = <1 regular / 0 supplementary><starts yyyymmddhhmmss><term id 10> -> 25 chars.
     SELECT st.ukid,
            CAST(SUBSTRING(MIN(CONCAT(st.supplementary, DATE_FORMAT(st.starts, '%Y%m%d'), st.period_code)), 10) AS UNSIGNED)   AS first_period,
@@ -265,6 +260,7 @@ LEFT JOIN (
             JOIN ams_registration_programme_batch rpb ON rpb.id = pr.registration_programme_batch_id
                                                      AND IFNULL(rpb.is_deleted, 0) = 0
         ) pr ON pr.programme_id = sp5.programme_id AND pr.course_id = tc.course_id
+        WHERE t.acad_year_start * 100 + t.sequence * 10 <= {{academic_period}}
         GROUP BY sc.ukid, t.id, t.starts, t.additional_term, t.acad_year_start, t.sequence
     ) st
     GROUP BY st.ukid
@@ -272,4 +268,5 @@ LEFT JOIN (
 LEFT JOIN term ct                ON ct.id = tr.cur_term_id
 WHERE sp.student_status_id IS NULL                                            -- leavers are reported in the Attrition report
   AND NOT EXISTS (SELECT 1 FROM alumni_profile ap WHERE ap.ukid = sp.ukid)    -- graduates are reported in the Graduates report
-ORDER BY `Academic Period` DESC, `Student ID`;
+  AND ct.acad_year_start * 100 + ct.sequence * 10 = {{academic_period}}      -- students with courses in the selected period
+ORDER BY `Student ID`;

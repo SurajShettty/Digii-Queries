@@ -3,6 +3,7 @@
 -- Personal details come from student_profile, falling back to the student profile custom fields
 -- (user_details_master_field_value) for nationality / passport / marital status / disability / mode of study.
 -- Academic periods are coded as <acad_year_start><term sequence>0, e.g. 2025-26 term 1 -> 202510. To be mapped (KHDA Dict)
+-- Filter: {{academic_period}} = Graduation Academic Period code from academic_period_filter.sql, e.g. 202510.
 -- Columns marked "Enhancement Required" / "To Be Checked" have no source field yet and are returned as NULL.
 -- MySQL 5.x compatible: no CTEs / window functions.
 SELECT
@@ -144,4 +145,5 @@ LEFT JOIN (
           FROM ems_degree_audit_student
           GROUP BY student_ukid) l ON l.max_id = das.id
 ) da ON da.student_ukid = ap.ukid
-ORDER BY `Graduation Academic Period` DESC, `Student ID`;
+WHERE tr.last_period = {{academic_period}}
+ORDER BY `Student ID`;

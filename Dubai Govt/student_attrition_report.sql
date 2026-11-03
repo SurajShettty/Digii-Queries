@@ -4,6 +4,7 @@
 -- The status change is not versioned, so the current status and its remark are reported.
 -- Last Academic Period = last term in which the student was enrolled in courses.
 -- Academic periods are coded as <acad_year_start><term sequence>0, e.g. 2025-26 term 1 -> 202510. To be mapped (KHDA Dict)
+-- Filter: {{academic_period}} = Last Academic Period code from academic_period_filter.sql, e.g. 202510.
 -- Columns marked "Enhancement Required" / "To Be Checked" have no source field yet.
 -- MySQL 5.x compatible: no CTEs / window functions.
 SELECT
@@ -93,4 +94,5 @@ LEFT JOIN (
     GROUP BY spe.ukid, ee.term_id
 ) cr ON cr.ukid = sp.ukid AND cr.term_id = lt.term_id
 WHERE NOT EXISTS (SELECT 1 FROM alumni_profile ap WHERE ap.ukid = sp.ukid)   -- graduates are reported in the Graduates report
-ORDER BY `Last Academic Period` DESC, `Student ID`;
+  AND lt.period_code = {{academic_period}}
+ORDER BY `Student ID`;

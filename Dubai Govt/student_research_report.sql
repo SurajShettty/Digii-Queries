@@ -2,23 +2,18 @@
 -- One row per research project of a currently enrolled student (ePortfolio cluster STUDENT_PROJECTS);
 -- students of PhD programmes without a project entry get one row with the topic taken from their specialisation / programme.
 -- Currently enrolled = student profile with no custom student status and not converted to alumni (same as the Enrollment report).
--- Academic Period = latest regular term in which the student has courses (course registration or exam enrolment);
--- falls back to the term running on the report date when the student has no courses yet.
+-- Academic Period = the selected period: only students with courses (course registration or exam enrolment) in a regular
+-- term of that period are listed; terms after it are ignored.
 -- Impact indicators are derived from the student ePortfolio clusters (journal / conference publications, patents,
 -- participated events, project funding); the rest are not captured and default to 'N'.
 -- Academic periods are coded as <acad_year_start><term sequence>0, e.g. 2025-26 term 1 -> 202510. To be mapped (KHDA Dict)
+-- Filter: {{academic_period}} = Academic Period code from academic_period_filter.sql, e.g. 202510.
 -- Columns marked "Enhancement Required" / "To Be Checked" have no (reliable) source field yet.
 -- MySQL 5.x compatible: no CTEs / window functions.
 SELECT
     c.university_code                                                   AS `Institution Code`,              -- CHEDS institution code to be mapped (KHDA Dict)
     c.college_name                                                      AS `Institution Name`,
-    COALESCE(tr.last_period,
-             (SELECT t.acad_year_start * 100 + t.sequence * 10          -- term running on the report date (programme term preferred over all-programme term)
-              FROM term t
-              WHERE CURDATE() BETWEEN DATE(t.starts) AND DATE(t.ends)
-                AND (t.programme_id = sp.programme_id OR (t.all_programmes = 1 AND t.college_id = c.college_id))
-              ORDER BY (t.programme_id = sp.programme_id) DESC, IFNULL(t.additional_term, 0), DATEDIFF(t.ends, t.starts), t.starts DESC
-              LIMIT 1))                                                 AS `Academic Period`,
+    tr.last_period                                                      AS `Academic Period`,
     COALESCE(NULLIF(TRIM(sp.registration_id), ''), ua.registration_id)  AS `Student ID`,
     TRIM(CONCAT_WS(' ', NULLIF(TRIM(ua.f_name), ''),
                         NULLIF(TRIM(ua.m_name), ''),
@@ -144,7 +139,7 @@ LEFT JOIN (
     GROUP BY pss.ukid
 ) ss ON ss.ukid = sp.ukid
 LEFT JOIN (
-    -- first / latest regular term the student had courses in (course registration or exam enrolment)
+    -- first / latest regular term (up to the selected period) the student had courses in (course registration or exam enrolment)
     SELECT sc.ukid,
            CAST(SUBSTRING(MIN(CONCAT(DATE_FORMAT(t.starts, '%Y%m%d'), t.acad_year_start * 100 + t.sequence * 10)), 9) AS UNSIGNED) AS first_period,
            CAST(SUBSTRING(MAX(CONCAT(DATE_FORMAT(t.starts, '%Y%m%d'), t.acad_year_start * 100 + t.sequence * 10)), 9) AS UNSIGNED) AS last_period
@@ -159,9 +154,11 @@ LEFT JOIN (
     ) sc
     JOIN term_course tc ON tc.id = sc.term_course_id
     JOIN term t         ON t.id = tc.term_id AND IFNULL(t.additional_term, 0) = 0
+    WHERE t.acad_year_start * 100 + t.sequence * 10 <= {{academic_period}}
     GROUP BY sc.ukid
 ) tr ON tr.ukid = sp.ukid
 WHERE sp.student_status_id IS NULL                                            -- leavers are reported in the Attrition report
   AND NOT EXISTS (SELECT 1 FROM alumni_profile ap WHERE ap.ukid = sp.ukid)    -- graduates are reported in the Graduates report
   AND (rp.ukid IS NOT NULL OR pt.name = 'PhD')                                -- research students: project entered or PhD programme
-ORDER BY `Academic Period` DESC, `Student ID`, `Research Topic`;
+  AND tr.last_period = {{academic_period}}                                    -- students with courses in the selected period
+ORDER BY `Student ID`, `Research Topic`;

@@ -6,6 +6,7 @@
 -- A course offered to several programmes is listed once per programme. Programme comes from the course's classes in that
 -- term (programme batch sections, else students added to the class, else class programme), else from curriculum mapping.
 -- Academic periods are coded as <acad_year_start><term sequence>0, e.g. 2025-26 term 1 -> 202510. To be mapped (CHEDS Semester Code list)
+-- Filter: {{academic_period}} = Academic Period code from academic_period_filter.sql, e.g. 202510.
 -- MySQL 5.x compatible: no CTEs / window functions.
 SELECT DISTINCT
     c.university_code                                                   AS `Institution Code`,          -- CHEDS institution code to be mapped (CAA licensed institutions list)
@@ -64,4 +65,5 @@ LEFT JOIN (
 ) cup ON cup.course_id = tc.course_id AND clp.programme_id IS NULL
 LEFT JOIN programme p                        ON p.programme_id = COALESCE(clp.programme_id, cup.programme_id, t.programme_id)
 LEFT JOIN college c                          ON c.college_id = COALESCE(p.college_id, t.college_id)
+WHERE t.acad_year_start * 100 + t.sequence * 10 = {{academic_period}}
 ORDER BY `Academic Period` DESC, `Program Code`, `Course code`;

@@ -3,23 +3,18 @@
 -- to alumni (same as the Enrollment report) and flagged as a person of determination: "Physically Disabled" = Yes, a
 -- disability type entered, special category PH / PWD(PHC), or any SOD custom field indicating assistive devices /
 -- special accommodations.
--- Academic Period = latest regular term in which the student has courses (course registration or exam enrolment);
--- falls back to the term running on the report date when the student has no courses yet.
+-- Academic Period = the selected period: only students with courses (course registration or exam enrolment) in a regular
+-- term of that period are listed.
 -- SOD details come from Student Management custom fields (user_details_master_field, identifiers SOD_*). Multiple values
 -- may be entered comma separated; they are reported semicolon separated as KHDA expects.
 -- Academic periods are coded as <acad_year_start><term sequence>0, e.g. 2025-26 term 1 -> 202510. To be mapped (KHDA Dict)
+-- Filter: {{academic_period}} = Academic Period code from academic_period_filter.sql, e.g. 202510.
 -- Columns marked "Enhancement Required" / "To Be Checked" have no (reliable) source field yet.
 -- MySQL 5.x compatible: no CTEs / window functions.
 SELECT
     c.university_code                                                   AS `Institution Code`,              -- CHEDS institution code to be mapped (KHDA Dict)
     c.college_name                                                      AS `Institution Name`,
-    COALESCE(tr.last_period,
-             (SELECT t.acad_year_start * 100 + t.sequence * 10          -- term running on the report date (programme term preferred over all-programme term)
-              FROM term t
-              WHERE CURDATE() BETWEEN DATE(t.starts) AND DATE(t.ends)
-                AND (t.programme_id = sp.programme_id OR (t.all_programmes = 1 AND t.college_id = c.college_id))
-              ORDER BY (t.programme_id = sp.programme_id) DESC, IFNULL(t.additional_term, 0), DATEDIFF(t.ends, t.starts), t.starts DESC
-              LIMIT 1))                                                 AS `Academic Period`,
+    tr.period_code                                                      AS `Academic Period`,
     COALESCE(NULLIF(TRIM(sp.registration_id), ''), ua.registration_id)  AS `Student ID`,
     CASE
          WHEN cf.accommodation_type IN ('Y', 'YES', 'ON CAMPUS', 'ON-CAMPUS')   THEN 'Y'
@@ -83,10 +78,10 @@ JOIN (
        OR f.identifier LIKE 'SOD\_%'
     GROUP BY v.ukid
 ) cf ON cf.ukid = sp.ukid
-LEFT JOIN (
-    -- first / latest regular term the student had courses in (course registration or exam enrolment)
-    SELECT sc.ukid,
-           CAST(SUBSTRING(MAX(CONCAT(DATE_FORMAT(t.starts, '%Y%m%d'), t.acad_year_start * 100 + t.sequence * 10)), 9) AS UNSIGNED) AS last_period
+JOIN (
+    -- students with courses in a regular term of the selected period (course registration or exam enrolment)
+    SELECT DISTINCT sc.ukid,
+           t.acad_year_start * 100 + t.sequence * 10                    AS period_code
     FROM (
         SELECT r.ukid, r.term_course_id
         FROM ems_student_course_registration_details r
@@ -98,7 +93,7 @@ LEFT JOIN (
     ) sc
     JOIN term_course tc ON tc.id = sc.term_course_id
     JOIN term t         ON t.id = tc.term_id AND IFNULL(t.additional_term, 0) = 0
-    GROUP BY sc.ukid
+    WHERE t.acad_year_start * 100 + t.sequence * 10 = {{academic_period}}
 ) tr ON tr.ukid = sp.ukid
 WHERE sp.student_status_id IS NULL                                            -- leavers are reported in the Attrition report
   AND NOT EXISTS (SELECT 1 FROM alumni_profile ap WHERE ap.ukid = sp.ukid)    -- graduates are reported in the Graduates report
@@ -109,4 +104,4 @@ WHERE sp.student_status_id IS NULL                                            --
     OR cf.instructional_tech IN ('Y', 'YES') OR cf.instructional_tech_details IS NOT NULL
     OR cf.medical_devices IN ('Y', 'YES') OR cf.medical_devices_details IS NOT NULL
     OR COALESCE(cf.special_accommodation, 'NO') <> 'NO')
-ORDER BY `Academic Period` DESC, `Student ID`;
+ORDER BY `Student ID`;

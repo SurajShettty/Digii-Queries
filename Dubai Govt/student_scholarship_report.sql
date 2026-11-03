@@ -4,6 +4,7 @@
 -- Academic Period comes from the fee structure: academic year start (fee structure academic year, else derived from the
 -- batch year + fee sequence) and term within that year (TERM_WISE fee plans; YEARLY / ONE_TIME plans report term 1).
 -- Academic periods are coded as <acad_year_start><term sequence>0, e.g. 2025-26 term 1 -> 202510. To be mapped (KHDA Dict)
+-- Filter: {{academic_period}} = Academic Period code from academic_period_filter.sql, e.g. 202510.
 -- Scholarship Amount = scholarship amount applied across all fee heads; Scholarship Value = % of the tuition fee covered by
 -- the tuition fee head(s) of the scholarship (fee types named like '%TUITION%').
 -- Student details follow the Students - Enrollment report.
@@ -111,4 +112,5 @@ LEFT JOIN (
 ) cf ON cf.ukid = sp.ukid
 WHERE IFNULL(ss.is_deleted, 0) = 0
   AND sch.amount > 0                                                          -- scholarship actually applied
-ORDER BY `Academic Period` DESC, `Student ID`, `Scholarship Type`;
+HAVING `Academic Period` = {{academic_period}}
+ORDER BY `Student ID`, `Scholarship Type`;
