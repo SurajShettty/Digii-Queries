@@ -156,6 +156,23 @@ REPORTS = {
             "Nationality of Mother": _NATIONALITY,
         },
     },
+    "graduate_licensure": {
+        "columns": {
+            "Graduate Level (Level Code)": {"list": "studentlevel", "default": None },
+            "Graduate Degree (Degree Code)": {"list": "degreeorprogramlevel", "default": "UD"},
+            "Graduate Program (Program Code)": {"list": "degreeorprogramlevel", "default": "UD"}
+        },
+    },
+    "institute_overview": {
+        "columns": {
+            "Institution Type": {"list": "institutiontype", "default": "OT" }
+        },
+    },
+    "courses_report": {
+        "columns": {
+            "Course Degree": {"list": "degreeorprogramlevel", "default": "UD"}
+        },
+    },
 }
 
 REVIEW_HEADER = ["Column", "Digii value", "Rows", "Code applied", "Method", "Score", "Closest KHDA entries"]
