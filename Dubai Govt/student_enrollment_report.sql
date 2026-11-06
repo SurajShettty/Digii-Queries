@@ -8,10 +8,202 @@
 -- (user_details_master_field_value).
 -- Academic periods are coded as <acad_year_start><term sequence>0, e.g. 2025-26 term 1 -> 202510. To be mapped (KHDA Dict)
 -- Filter: {{academic_period}} = Academic Period code from academic_period_filter.sql, e.g. 202510.
+-- KHDA codes come from khda_sync (the inner query r returns the Digii values, the outer query maps them):
+--   digii_code_map  = confirmed Digii value -> KHDA code per KHDA tenant (khda_code; suggested_code is ignored until confirmed);
+--                     kind = the master_value list name below, digii_id = the Digii value
+--   institution     = KHDA tenant -> Digii college (digii_data_college_id, else digii_college_id)
+--   master_value    = KHDA code lists; mapped codes must exist here
+--   Each coded column = confirmed mapping, else a direct label / code match in master_value, else the default
+--   (blank Digii value -> NULL unless stated):
+--     Marital Status                          'maritalstatus'         default 'U' (Undeclared/unknown)
+--     Nationality                             'country'               'NS' (Not Specified) if blank, 'UN' (Unknown) if unmapped
+--     Student Degree (Degree Code)            'degreeorprogramlevel'  kind 'degree' (by programme_types.id) or 'degreeorprogramlevel'
+--                                                                     (by type name); default 'UD' (Undeclared)
+--     Employment Status                       'studemploymentstatus'  default NULL (no catch-all code)
+--     Employment Sector                       'employmentsector'      default NULL (no catch-all code)
+--     Language Test Proficiency Exam          'acadproficiencytest'   default IELTS -> '11' (IELTS -Academic), else '30' (OTHER)
+--     High School System                      'highschoolsystem'      default 'OT' (Other)
+--     12th Grade stream (Stream Code)         '12thgradestream'       default 'NA' (Not Applicable), also when blank
+--     Last Completed Higher Education Degree  'degreeorprogramlevel'  default 'UD' (Undeclared)
+--     High School Completion Year,
+--     Last Completed Higher Education Year    'academicyear'          year of passing YYYY -> code (YYYY-1)YY, e.g. 2020 -> 201920,
+--                                                                     kept only when it exists in the list
 -- Columns marked "Enhancement Required" / "To Be Checked" have no (reliable) source field yet.
--- MySQL 5.x compatible: no CTEs / window functions.
+-- MySQL 5.x compatible: no CTEs / window functions. khda_sync uses a different collation, hence the explicit COLLATE.
 SELECT
-    c.university_code                                                   AS `Institution Code`,              -- CHEDS institution code to be mapped (KHDA Dict)
+    r.`Institution Code`,
+    r.`Institution Name`,
+    r.`Academic Period`,
+    r.`Student ID`,
+    r.`Al Khulasa`,
+    r.`Emirates ID`,
+    r.`Passport Number`,
+    r.`Reason for Missing EID`,
+    r.`Family Book Number`,
+    r.`Family Number`,
+    r.`City Number`,
+    r.`Student Name (English)`,
+    r.`Student Name (Arabic)`,
+    r.`Gender`,
+    r.`Student DOB`,
+    r.`Student Email Address`,
+    r.`Student Mobile Number`,
+    r.`People of Determination (Special Needs Indicator)`,
+    r.`People of Determination Category`,
+    COALESCE(
+        (SELECT mv.code
+         FROM khda_sync.digii_code_map m
+         JOIN khda_sync.institution i   ON i.tenant_id = m.tenant_id
+         JOIN khda_sync.master_value mv ON mv.list_name = 'maritalstatus' AND mv.code = m.khda_code COLLATE utf8mb4_unicode_ci
+         WHERE COALESCE(i.digii_data_college_id, i.digii_college_id) = r.college_id
+           AND m.kind = 'maritalstatus' AND m.digii_id COLLATE utf8mb4_unicode_ci = r.raw_marital_status
+         LIMIT 1),
+        (SELECT mv.code FROM khda_sync.master_value mv
+         WHERE mv.list_name = 'maritalstatus' AND r.raw_marital_status IN (mv.label, mv.code) LIMIT 1),
+        'U')                                                            AS `Marital Status`,
+    CASE WHEN r.raw_nationality IS NULL THEN 'NS' ELSE
+    COALESCE(
+        (SELECT mv.code
+         FROM khda_sync.digii_code_map m
+         JOIN khda_sync.institution i   ON i.tenant_id = m.tenant_id
+         JOIN khda_sync.master_value mv ON mv.list_name = 'country' AND mv.code = m.khda_code COLLATE utf8mb4_unicode_ci
+         WHERE COALESCE(i.digii_data_college_id, i.digii_college_id) = r.college_id
+           AND m.kind = 'country' AND m.digii_id COLLATE utf8mb4_unicode_ci = r.raw_nationality
+         LIMIT 1),
+        (SELECT mv.code FROM khda_sync.master_value mv
+         WHERE mv.list_name = 'country' AND r.raw_nationality IN (mv.label, mv.code) LIMIT 1),
+        'UN') END                                                       AS `Nationality`,
+    r.`Nationality of Mother`,
+    r.`Home Emirate (Emirates Code)`,
+    r.`Student Campus (Campus Code)`,
+    r.`Student Type (Type Code)`,
+    r.`1st Academic Period`,
+    r.`Student Level (Level Code)`,
+    COALESCE(
+        (SELECT mv.code                                                 -- confirmed mapping (by type id first, then by type name)
+         FROM khda_sync.digii_code_map m
+         JOIN khda_sync.institution i   ON i.tenant_id = m.tenant_id
+         JOIN khda_sync.master_value mv ON mv.list_name = 'degreeorprogramlevel' AND mv.code = m.khda_code COLLATE utf8mb4_unicode_ci
+         WHERE COALESCE(i.digii_data_college_id, i.digii_college_id) = r.college_id
+           AND ((m.kind = 'degree' AND m.digii_id COLLATE utf8mb4_unicode_ci = CAST(r.programme_type_id AS CHAR) COLLATE utf8mb4_unicode_ci)
+                OR (m.kind = 'degreeorprogramlevel' AND m.digii_id COLLATE utf8mb4_unicode_ci = r.raw_degree))
+         ORDER BY (m.kind = 'degree') DESC
+         LIMIT 1),
+        (SELECT mv.code FROM khda_sync.master_value mv
+         WHERE mv.list_name = 'degreeorprogramlevel' AND r.raw_degree IN (mv.label, mv.code) LIMIT 1),
+        'UD')                                                           AS `Student Degree (Degree Code)`,
+    r.`Area of Specialization (CIP Family code)`,
+    r.`Student Major (text)`,
+    r.`Student Major (CIP Major Classification)`,
+    r.`Student Minor`,
+    r.`Student Program (Program Code)`,
+    r.`Mode of Study (FT/PT)`,
+    COALESCE(
+        (SELECT mv.code
+         FROM khda_sync.digii_code_map m
+         JOIN khda_sync.institution i   ON i.tenant_id = m.tenant_id
+         JOIN khda_sync.master_value mv ON mv.list_name = 'studemploymentstatus' AND mv.code = m.khda_code COLLATE utf8mb4_unicode_ci
+         WHERE COALESCE(i.digii_data_college_id, i.digii_college_id) = r.college_id
+           AND m.kind = 'studemploymentstatus' AND m.digii_id COLLATE utf8mb4_unicode_ci = r.raw_employment_status
+         LIMIT 1),
+        (SELECT mv.code FROM khda_sync.master_value mv
+         WHERE mv.list_name = 'studemploymentstatus' AND r.raw_employment_status IN (mv.label, mv.code) LIMIT 1)) AS `Employment Status`,
+    COALESCE(
+        (SELECT mv.code
+         FROM khda_sync.digii_code_map m
+         JOIN khda_sync.institution i   ON i.tenant_id = m.tenant_id
+         JOIN khda_sync.master_value mv ON mv.list_name = 'employmentsector' AND mv.code = m.khda_code COLLATE utf8mb4_unicode_ci
+         WHERE COALESCE(i.digii_data_college_id, i.digii_college_id) = r.college_id
+           AND m.kind = 'employmentsector' AND m.digii_id COLLATE utf8mb4_unicode_ci = r.raw_employment_sector
+         LIMIT 1),
+        (SELECT mv.code FROM khda_sync.master_value mv
+         WHERE mv.list_name = 'employmentsector' AND r.raw_employment_sector IN (mv.label, mv.code) LIMIT 1)) AS `Employment Sector`,
+    r.`Employment Position`,
+    r.`Required academic periods for Graduation`,
+    r.`Required Credits for Graduation`,
+    r.`Currently Registered Credits`,
+    r.`Currently Registered Pre-requisite Credits`,
+    r.`Total Credits Registered (cumulative - till last Academic period)`,
+    r.`Total Credits Completed (cumulative - till last academic period)`,
+    r.`Overall GPA (cumulative - till last Academic period)`,
+    r.`Transfer Institution`,
+    r.`Transfer Credits Cumulative`,
+    CASE WHEN r.raw_language_test IS NOT NULL THEN
+    COALESCE(
+        (SELECT mv.code
+         FROM khda_sync.digii_code_map m
+         JOIN khda_sync.institution i   ON i.tenant_id = m.tenant_id
+         JOIN khda_sync.master_value mv ON mv.list_name = 'acadproficiencytest' AND mv.code = m.khda_code COLLATE utf8mb4_unicode_ci
+         WHERE COALESCE(i.digii_data_college_id, i.digii_college_id) = r.college_id
+           AND m.kind = 'acadproficiencytest' AND m.digii_id COLLATE utf8mb4_unicode_ci = r.raw_language_test
+         LIMIT 1),
+        CASE r.raw_language_test WHEN 'IELTS' THEN '11' ELSE '30' END) END AS `Language Test Proficiency Exam`, -- TOEFL variant (CBT / IBT / paper) not captured -> OTHER until mapped
+    r.`Language Test Proficiency Exam Pass Date`,
+    r.`Language Test Proficiency Exam Score`,
+    r.`Standardized Test Name (for Masters and Above)`,
+    r.`Standardized Test Score (for Masters and Above)`,
+    r.`High School - Country Code`,
+    CASE WHEN r.raw_hs_system IS NOT NULL THEN
+    COALESCE(
+        (SELECT mv.code
+         FROM khda_sync.digii_code_map m
+         JOIN khda_sync.institution i   ON i.tenant_id = m.tenant_id
+         JOIN khda_sync.master_value mv ON mv.list_name = 'highschoolsystem' AND mv.code = m.khda_code COLLATE utf8mb4_unicode_ci
+         WHERE COALESCE(i.digii_data_college_id, i.digii_college_id) = r.college_id
+           AND m.kind = 'highschoolsystem' AND m.digii_id COLLATE utf8mb4_unicode_ci = r.raw_hs_system
+         LIMIT 1),
+        (SELECT mv.code FROM khda_sync.master_value mv
+         WHERE mv.list_name = 'highschoolsystem' AND r.raw_hs_system IN (mv.label, mv.code) LIMIT 1),
+        'OT') END                                                       AS `High School System`,
+    r.`High School Exit Score`,
+    (SELECT mv.code FROM khda_sync.master_value mv
+     WHERE mv.list_name = 'academicyear'
+       AND mv.code = CAST(r.hs_year_code AS CHAR) COLLATE utf8mb4_unicode_ci LIMIT 1) AS `High School Completion Year`,
+    r.`High School Equivalency Indicator`,
+    r.`High School Equivalency Number`,
+    COALESCE(
+        (SELECT mv.code
+         FROM khda_sync.digii_code_map m
+         JOIN khda_sync.institution i   ON i.tenant_id = m.tenant_id
+         JOIN khda_sync.master_value mv ON mv.list_name = '12thgradestream' AND mv.code = m.khda_code COLLATE utf8mb4_unicode_ci
+         WHERE COALESCE(i.digii_data_college_id, i.digii_college_id) = r.college_id
+           AND m.kind = '12thgradestream' AND m.digii_id COLLATE utf8mb4_unicode_ci = r.raw_hs_stream
+         LIMIT 1),
+        (SELECT mv.code FROM khda_sync.master_value mv
+         WHERE mv.list_name = '12thgradestream' AND r.raw_hs_stream IN (mv.label, mv.code) LIMIT 1),
+        'NA')                                                           AS `12th Grade stream (Stream Code)`,
+    CASE WHEN r.raw_last_degree IS NOT NULL THEN
+    COALESCE(
+        (SELECT mv.code
+         FROM khda_sync.digii_code_map m
+         JOIN khda_sync.institution i   ON i.tenant_id = m.tenant_id
+         JOIN khda_sync.master_value mv ON mv.list_name = 'degreeorprogramlevel' AND mv.code = m.khda_code COLLATE utf8mb4_unicode_ci
+         WHERE COALESCE(i.digii_data_college_id, i.digii_college_id) = r.college_id
+           AND m.kind = 'degreeorprogramlevel' AND m.digii_id COLLATE utf8mb4_unicode_ci = r.raw_last_degree
+         LIMIT 1),
+        (SELECT mv.code FROM khda_sync.master_value mv
+         WHERE mv.list_name = 'degreeorprogramlevel' AND r.raw_last_degree IN (mv.label, mv.code) LIMIT 1),
+        'UD') END                                                       AS `Last Completed Higher Education Degree`,
+    r.`Last Completed Higher Education Institution Name`,
+    r.`Last Completed Higher Education Institution Country`,
+    r.`Last Completed Higher Education Institution CODE`,
+    r.`Last Completed Higher Education Degree CGPA`,
+    (SELECT mv.code FROM khda_sync.master_value mv
+     WHERE mv.list_name = 'academicyear'
+       AND mv.code = CAST(r.last_year_code AS CHAR) COLLATE utf8mb4_unicode_ci LIMIT 1) AS `Last Completed Higher Education Year`,
+    r.`Last Completed Higher Education Equivalency Indicator`,
+    r.`Last Completed Higher Education Equivalency Number`,
+    r.`Outgoing Exchange student Indicator`,
+    r.`Incoming Exchange Student Indicator`,
+    r.`Exchange partner university code`,
+    r.`Enrolled in joint/dual program`,
+    r.`Expected Graduation period`,
+    r.`Last Updated`
+FROM (
+SELECT
+    c.college_id,
+    pt.id                                                               AS programme_type_id,
+    c.university_code                                                  AS `Institution Code`,              -- CHEDS institution code to be mapped (KHDA Dict)
     c.college_name                                                      AS `Institution Name`,
     ct.acad_year_start * 100 + ct.sequence * 10                         AS `Academic Period`,
     COALESCE(NULLIF(TRIM(sp.registration_id), ''), ua.registration_id)  AS `Student ID`,
@@ -46,9 +238,9 @@ SELECT
          ELSE 'U'
     END                                                                 AS `People of Determination (Special Needs Indicator)`, -- To Be Checked (only "physically disabled" is captured)
     NULL                                                                AS `People of Determination Category`, -- Enhancement Required (mandatory when indicator = 'Y')
-    COALESCE(NULLIF(TRIM(sp.marital_status), ''), cf.marital_status)    AS `Marital Status`,                -- Marital status code to be mapped (KHDA Dict)
-    COALESCE(NULLIF(TRIM(sp.nationality), ''), cf.nationality,
-             NULLIF(TRIM(sp.citizenship), ''))                          AS `Nationality`,                   -- Nationality code to be mapped (KHDA Dict)
+    CONVERT(COALESCE(NULLIF(TRIM(sp.marital_status), ''), cf.marital_status) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS raw_marital_status,
+    CONVERT(COALESCE(NULLIF(TRIM(sp.nationality), ''), cf.nationality,
+                     NULLIF(TRIM(sp.citizenship), '')) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS raw_nationality,
     NULL                                                                AS `Nationality of Mother`,         -- Enhancement Required
     NULL                                                                AS `Home Emirate (Emirates Code)`,  -- Enhancement Required
     NULL                                                                AS `Student Campus (Campus Code)`,  -- Enhancement Required (campus code not captured)
@@ -68,7 +260,7 @@ SELECT
               END
          ELSE pt.name
     END                                                                 AS `Student Level (Level Code)`,    -- To Be Checked: UG from current year of study; others to be mapped (KHDA Dict)
-    pt.name                                                             AS `Student Degree (Degree Code)`,  -- Degree code to be mapped (KHDA Dict, e.g. BA)
+    CONVERT(pt.name USING utf8mb4) COLLATE utf8mb4_unicode_ci           AS raw_degree,
     NULL                                                                AS `Area of Specialization (CIP Family code)`, -- Enhancement Required ('99' for unclassified programmes)
     COALESCE(ss.major_name, s.name, p.programme_name)                   AS `Student Major (text)`,
     NULL                                                                AS `Student Major (CIP Major Classification)`, -- Enhancement Required ('99.9999' for unclassified programmes)
@@ -78,8 +270,8 @@ SELECT
          WHEN cf.mode_of_study IN ('Full-Time', 'Regular') THEN 'FT'
          WHEN cf.mode_of_study = 'Part-Time'               THEN 'PT'
     END                                                                 AS `Mode of Study (FT/PT)`,         -- To Be Checked (Online/Distance/Correspondence not mapped)
-    cf.employment_status                                                AS `Employment Status`,             -- To Be Checked: employment status code to be mapped (KHDA Dict)
-    cf.employment_sector                                                AS `Employment Sector`,             -- To Be Checked: employment type stands in for sector (KHDA Dict)
+    CONVERT(cf.employment_status USING utf8mb4) COLLATE utf8mb4_unicode_ci AS raw_employment_status,
+    CONVERT(cf.employment_sector USING utf8mb4) COLLATE utf8mb4_unicode_ci AS raw_employment_sector,     -- To Be Checked: employment type stands in for sector
     cf.designation                                                      AS `Employment Position`,
     p.system_count                                                      AS `Required academic periods for Graduation`, -- regular terms in the programme (e.g. 8 semesters)
     COALESCE(
@@ -126,7 +318,7 @@ SELECT
     NULL                                                                AS `Transfer Credits Cumulative`,   -- Enhancement Required (transfer credits not captured)
     CASE WHEN cf.ielts_score IS NOT NULL THEN 'IELTS'
          WHEN cf.toefl_score IS NOT NULL THEN 'TOEFL'
-    END                                                                 AS `Language Test Proficiency Exam`, -- English test code to be mapped (KHDA Dict)
+    END                                                                 AS raw_language_test,
     CASE WHEN cf.ielts_score IS NOT NULL THEN cf.ielts_year
          WHEN cf.toefl_score IS NOT NULL THEN cf.toefl_year
     END                                                                 AS `Language Test Proficiency Exam Pass Date`, -- To Be Checked: only the year of passing is captured
@@ -136,18 +328,22 @@ SELECT
     END                                                                 AS `Standardized Test Name (for Masters and Above)`, -- Standardized test code to be mapped (KHDA Dict)
     COALESCE(cf.gmat_score, cf.gre_score)                               AS `Standardized Test Score (for Masters and Above)`,
     NULL                                                                AS `High School - Country Code`,    -- Enhancement Required
-    cf.hsc_board                                                        AS `High School System`,            -- To Be Checked: board name; High School System code to be mapped (KHDA Dict)
+    CONVERT(cf.hsc_board USING utf8mb4) COLLATE utf8mb4_unicode_ci      AS raw_hs_system,                   -- To Be Checked: board name
     COALESCE(cf.hsc_percentage, NULLIF(TRIM(sp.hsc_marks), ''))          AS `High School Exit Score`,
-    cf.hsc_year                                                         AS `High School Completion Year`,   -- To Be Checked: CHEDS expects the academic year code
+    CASE WHEN cf.hsc_year REGEXP '^[0-9]{4}$'                           -- year of passing YYYY -> academic year (YYYY-1)-YYYY
+         THEN (CAST(cf.hsc_year AS UNSIGNED) - 1) * 100 + MOD(CAST(cf.hsc_year AS UNSIGNED), 100)
+    END                                                                 AS hs_year_code,
     NULL                                                                AS `High School Equivalency Indicator`, -- Enhancement Required (Y/R/A/N/U)
     NULL                                                                AS `High School Equivalency Number`,    -- Enhancement Required
-    cf.hsc_stream                                                       AS `12th Grade stream (Stream Code)`,   -- Stream code to be mapped (KHDA Dict; 'NA' for non-MOE curriculum)
-    COALESCE(cf.ug_degree, cf.highest_qualification)                    AS `Last Completed Higher Education Degree`, -- Degree code to be mapped (KHDA Dict)
+    CONVERT(cf.hsc_stream USING utf8mb4) COLLATE utf8mb4_unicode_ci     AS raw_hs_stream,
+    CONVERT(COALESCE(cf.ug_degree, cf.highest_qualification) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS raw_last_degree,
     cf.previous_institution                                             AS `Last Completed Higher Education Institution Name`, -- To Be Checked
     NULL                                                                AS `Last Completed Higher Education Institution Country`, -- Enhancement Required
     NULL                                                                AS `Last Completed Higher Education Institution CODE`,    -- Enhancement Required
     cf.ug_cgpa                                                          AS `Last Completed Higher Education Degree CGPA`,         -- To Be Checked: map to the 4-point scale
-    cf.ug_year                                                          AS `Last Completed Higher Education Year`,                -- To Be Checked: CHEDS expects the academic year code
+    CASE WHEN cf.ug_year REGEXP '^[0-9]{4}$'                            -- year of passing YYYY -> academic year (YYYY-1)-YYYY
+         THEN (CAST(cf.ug_year AS UNSIGNED) - 1) * 100 + MOD(CAST(cf.ug_year AS UNSIGNED), 100)
+    END                                                                 AS last_year_code,
     NULL                                                                AS `Last Completed Higher Education Equivalency Indicator`, -- Enhancement Required
     NULL                                                                AS `Last Completed Higher Education Equivalency Number`,    -- Enhancement Required
     'N'                                                                 AS `Outgoing Exchange student Indicator`, -- Enhancement Required (exchange not captured)
@@ -269,4 +465,5 @@ LEFT JOIN term ct                ON ct.id = tr.cur_term_id
 WHERE sp.student_status_id IS NULL                                            -- leavers are reported in the Attrition report
   AND NOT EXISTS (SELECT 1 FROM alumni_profile ap WHERE ap.ukid = sp.ukid)    -- graduates are reported in the Graduates report
   AND ct.acad_year_start * 100 + ct.sequence * 10 = {{academic_period}}      -- students with courses in the selected period
-ORDER BY `Student ID`;
+) r
+ORDER BY r.`Student ID`;
