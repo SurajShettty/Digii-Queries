@@ -8,20 +8,12 @@
 -- Academic Period = <acad_year_start><term sequence>0 of the terms of the staff member's college, e.g. 2025-26 term 1 -> 202510
 --   (employee details are a snapshot of currently active staff; staff of colleges with no term in the period are not listed).
 --   To be mapped (CHEDS Semester Code list)
--- KHDA codes come from khda_sync (the inner query r returns the Digii values, the outer query maps them):
---   digii_code_map  = confirmed Digii value -> KHDA code per KHDA tenant (khda_code; suggested_code is ignored until confirmed);
---                     kind = the master_value list name below, digii_id = the Digii value
---   institution     = KHDA tenant -> Digii college (digii_data_college_id, else digii_college_id)
---   master_value    = KHDA code lists; mapped codes must exist here
---   Each coded column = confirmed mapping, else a direct label / code match in master_value, else the default:
---     Nationality        list 'country'               default 'NS' (Not Specified) if blank, 'UN' (Unknown) if unmapped
---     Campus             list 'campus'                default NULL (the KHDA list has no catch-all code)
---     Qualification      list 'degreeorprogramlevel'  default 'UD' (Undeclared)
---     Position Title     list 'staffposition'         default 'OTH' (Others); Position Title Other = the Digii title then
---     Employment Status  list 'employmentstatus'      default 'OT' (Other)
+-- Coded columns (KHDA lists) return the Digii values. khda_match/apply_khda_codes.py (report employee_basic_details) turns them
+-- into KHDA codes from exports of khda_sync.master_value and the confirmed khda_sync.digii_code_map mappings
+-- (exact / normalised / fuzzy matching, then the column defaults).
 -- Filter: {{academic_period}} = Academic Period code, e.g. 202510 (applied to the term-derived period).
 -- Columns marked "Enhancement Required" / "To Be Checked" have no source field yet; spec defaults are used where the spec gives one.
--- MySQL 5.x compatible: no CTEs / window functions. khda_sync uses a different collation, hence the explicit COLLATE.
+-- MySQL 5.x compatible: no CTEs / window functions.
 SELECT
     r.`Institution Code`,
     r.`Institution Name`,
@@ -31,29 +23,9 @@ SELECT
     r.`Reason for missing EID`,
     r.`Gender`,
     r.`Payroll`,
-    CASE WHEN r.raw_nationality IS NULL THEN 'NS' ELSE
-    COALESCE(
-        (SELECT mv.code
-         FROM khda_sync.digii_code_map m
-         JOIN khda_sync.institution i   ON i.tenant_id = m.tenant_id
-         JOIN khda_sync.master_value mv ON mv.list_name = 'country' AND mv.code = m.khda_code COLLATE utf8mb4_unicode_ci
-         WHERE COALESCE(i.digii_data_college_id, i.digii_college_id) = r.college_id
-           AND m.kind = 'country' AND m.digii_id COLLATE utf8mb4_unicode_ci = r.raw_nationality
-         LIMIT 1),
-        (SELECT mv.code FROM khda_sync.master_value mv
-         WHERE mv.list_name = 'country' AND r.raw_nationality IN (mv.label, mv.code) LIMIT 1),
-        'UN') END                                                       AS `Nationality`,
+    r.raw_nationality                                               AS `Nationality`,
     r.`Date of Birth`,
-    COALESCE(
-        (SELECT mv.code
-         FROM khda_sync.digii_code_map m
-         JOIN khda_sync.institution i   ON i.tenant_id = m.tenant_id
-         JOIN khda_sync.master_value mv ON mv.list_name = 'campus' AND mv.code = m.khda_code COLLATE utf8mb4_unicode_ci
-         WHERE COALESCE(i.digii_data_college_id, i.digii_college_id) = r.college_id
-           AND m.kind = 'campus' AND m.digii_id COLLATE utf8mb4_unicode_ci = r.raw_campus
-         LIMIT 1),
-        (SELECT mv.code FROM khda_sync.master_value mv
-         WHERE mv.list_name = 'campus' AND r.raw_campus IN (mv.label, mv.code) LIMIT 1)) AS `Campus`,
+    r.raw_campus                                                    AS `Campus`,
     r.`Email`,
     r.`Phone Number`,
     r.`Name`,
@@ -61,17 +33,7 @@ SELECT
     r.`Department`,
     r.`College`,
     r.`Last Promotion Date`,
-    COALESCE(
-        (SELECT mv.code
-         FROM khda_sync.digii_code_map m
-         JOIN khda_sync.institution i   ON i.tenant_id = m.tenant_id
-         JOIN khda_sync.master_value mv ON mv.list_name = 'degreeorprogramlevel' AND mv.code = m.khda_code COLLATE utf8mb4_unicode_ci
-         WHERE COALESCE(i.digii_data_college_id, i.digii_college_id) = r.college_id
-           AND m.kind = 'degreeorprogramlevel' AND m.digii_id COLLATE utf8mb4_unicode_ci = r.raw_qualification
-         LIMIT 1),
-        (SELECT mv.code FROM khda_sync.master_value mv
-         WHERE mv.list_name = 'degreeorprogramlevel' AND r.raw_qualification IN (mv.label, mv.code) LIMIT 1),
-        'UD')                                                           AS `Qualification`,
+    r.raw_qualification                                             AS `Qualification`,
     r.`Qualification Country`,
     r.`Qualification Institution Name`,
     r.`Qualification Institution Code`,
@@ -80,36 +42,13 @@ SELECT
     r.`Qualification Major`,
     r.`Equivalency Indicator`,
     r.`Equivalency Application Number`,
-    COALESCE(r.position_code, 'OTH')                                    AS `Position Title`,
-    CASE WHEN r.position_code IS NULL THEN r.raw_position END           AS `Position Title Other`,      -- only when Position Title = OTH
-    COALESCE(
-        (SELECT mv.code
-         FROM khda_sync.digii_code_map m
-         JOIN khda_sync.institution i   ON i.tenant_id = m.tenant_id
-         JOIN khda_sync.master_value mv ON mv.list_name = 'employmentstatus' AND mv.code = m.khda_code COLLATE utf8mb4_unicode_ci
-         WHERE COALESCE(i.digii_data_college_id, i.digii_college_id) = r.college_id
-           AND m.kind = 'employmentstatus' AND m.digii_id COLLATE utf8mb4_unicode_ci = r.raw_employment_status
-         LIMIT 1),
-        (SELECT mv.code FROM khda_sync.master_value mv
-         WHERE mv.list_name = 'employmentstatus' AND r.raw_employment_status IN (mv.label, mv.code) LIMIT 1),
-        'OT')                                                           AS `Employment Status`,
+    r.raw_position                                                  AS `Position Title`,
+    r.raw_position                                                  AS `Position Title Other`,      -- kept by the script only when Position Title = OTH
+    r.raw_employment_status                                         AS `Employment Status`,
     r.`Years of experience`,
     r.`ORCID ID`,
     r.`Last Updated`
 FROM (
-    SELECT
-        p.*,
-        COALESCE(
-            (SELECT mv.code
-             FROM khda_sync.digii_code_map m
-             JOIN khda_sync.institution i   ON i.tenant_id = m.tenant_id
-             JOIN khda_sync.master_value mv ON mv.list_name = 'staffposition' AND mv.code = m.khda_code COLLATE utf8mb4_unicode_ci
-             WHERE COALESCE(i.digii_data_college_id, i.digii_college_id) = p.college_id
-               AND m.kind = 'staffposition' AND m.digii_id COLLATE utf8mb4_unicode_ci = p.raw_position
-             LIMIT 1),
-            (SELECT mv.code FROM khda_sync.master_value mv
-             WHERE mv.list_name = 'staffposition' AND p.raw_position IN (mv.label, mv.code) LIMIT 1)) AS position_code
-    FROM (
         SELECT
             c.college_id,
             c.university_code                                           AS `Institution Code`,          -- CHEDS institution code to be mapped (KHDA Dict)
@@ -243,6 +182,5 @@ FROM (
             ) latest ON latest.ukid = qe.ukid AND latest.cluster_entry_id = qe.cluster_entry_id
         ) q ON q.ukid = ua.ukid
         WHERE ua.user_type IN ('faculty', 'administrator')
-    ) p
 ) r
 ORDER BY r.`Institution Name`, r.`Department`, r.`Employee ID`;

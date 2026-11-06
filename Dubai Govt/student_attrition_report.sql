@@ -5,18 +5,11 @@
 -- Last Academic Period = last term in which the student was enrolled in courses.
 -- Academic periods are coded as <acad_year_start><term sequence>0, e.g. 2025-26 term 1 -> 202510. To be mapped (KHDA Dict)
 -- Filter: {{academic_period}} = Last Academic Period code from academic_period_filter.sql, e.g. 202510.
--- KHDA codes come from khda_sync (the inner query r returns the Digii values, the outer query maps them):
---   digii_code_map  = confirmed Digii value -> KHDA code per KHDA tenant (khda_code; suggested_code is ignored until confirmed);
---                     kind = the master_value list name below, digii_id = the Digii value
---   institution     = KHDA tenant -> Digii college (digii_data_college_id, else digii_college_id)
---   master_value    = KHDA code lists; mapped codes must exist here
---   Each coded column = confirmed mapping, else a direct label / code match in master_value, else the default:
---     Nationality                 list 'country'         default 'NS' (Not Specified) if blank, 'UN' (Unknown) if unmapped
---     Student Level (Level Code)  list 'studentlevel'    by programme type name; default NULL (no catch-all code;
---                                                        year-wise levels FR/SP/JR/SR, M1/M2, D1/D2 need a mapping)
---     Attrition Category          list 'leavercategory'  by custom student status name; default NULL (no catch-all code)
+-- Coded columns (KHDA lists) return the Digii values. khda_match/apply_khda_codes.py (report student_attrition) turns them
+-- into KHDA codes from exports of khda_sync.master_value and the confirmed khda_sync.digii_code_map mappings
+-- (exact / normalised / fuzzy matching, then the column defaults).
 -- Columns marked "Enhancement Required" / "To Be Checked" have no source field yet.
--- MySQL 5.x compatible: no CTEs / window functions. khda_sync uses a different collation, hence the explicit COLLATE.
+-- MySQL 5.x compatible: no CTEs / window functions.
 SELECT
     r.`Institution Code`,
     r.`Institution Name`,
@@ -28,40 +21,11 @@ SELECT
     r.`Student Name (Arabic)`,
     r.`Gender`,
     r.`Student DOB`,
-    CASE WHEN r.raw_nationality IS NULL THEN 'NS' ELSE
-    COALESCE(
-        (SELECT mv.code
-         FROM khda_sync.digii_code_map m
-         JOIN khda_sync.institution i   ON i.tenant_id = m.tenant_id
-         JOIN khda_sync.master_value mv ON mv.list_name = 'country' AND mv.code = m.khda_code COLLATE utf8mb4_unicode_ci
-         WHERE COALESCE(i.digii_data_college_id, i.digii_college_id) = r.college_id
-           AND m.kind = 'country' AND m.digii_id COLLATE utf8mb4_unicode_ci = r.raw_nationality
-         LIMIT 1),
-        (SELECT mv.code FROM khda_sync.master_value mv
-         WHERE mv.list_name = 'country' AND r.raw_nationality IN (mv.label, mv.code) LIMIT 1),
-        'UN') END                                                       AS `Nationality`,
-    COALESCE(
-        (SELECT mv.code
-         FROM khda_sync.digii_code_map m
-         JOIN khda_sync.institution i   ON i.tenant_id = m.tenant_id
-         JOIN khda_sync.master_value mv ON mv.list_name = 'studentlevel' AND mv.code = m.khda_code COLLATE utf8mb4_unicode_ci
-         WHERE COALESCE(i.digii_data_college_id, i.digii_college_id) = r.college_id
-           AND m.kind = 'studentlevel' AND m.digii_id COLLATE utf8mb4_unicode_ci = r.raw_level
-         LIMIT 1),
-        (SELECT mv.code FROM khda_sync.master_value mv
-         WHERE mv.list_name = 'studentlevel' AND r.raw_level IN (mv.label, mv.code) LIMIT 1)) AS `Student Level (Level Code)`,
+    r.raw_nationality                                               AS `Nationality`,
+    r.raw_level                                                     AS `Student Level (Level Code)`,
     r.`Area of Specialization (CIP Family code)`,
     r.`Program (Program Code)`,
-    COALESCE(
-        (SELECT mv.code
-         FROM khda_sync.digii_code_map m
-         JOIN khda_sync.institution i   ON i.tenant_id = m.tenant_id
-         JOIN khda_sync.master_value mv ON mv.list_name = 'leavercategory' AND mv.code = m.khda_code COLLATE utf8mb4_unicode_ci
-         WHERE COALESCE(i.digii_data_college_id, i.digii_college_id) = r.college_id
-           AND m.kind = 'leavercategory' AND m.digii_id COLLATE utf8mb4_unicode_ci = r.raw_category
-         LIMIT 1),
-        (SELECT mv.code FROM khda_sync.master_value mv
-         WHERE mv.list_name = 'leavercategory' AND r.raw_category IN (mv.label, mv.code) LIMIT 1)) AS `Attrition Category`,
+    r.raw_category                                                  AS `Attrition Category`,
     r.`Attrition Reason`,
     r.`Withdrawn Credit Hours`,
     r.`Credit Hours Exceeding 15% Absence Limit`,

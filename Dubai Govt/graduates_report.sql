@@ -4,18 +4,11 @@
 -- (user_details_master_field_value) for nationality / passport / marital status / disability / mode of study.
 -- Academic periods are coded as <acad_year_start><term sequence>0, e.g. 2025-26 term 1 -> 202510. To be mapped (KHDA Dict)
 -- Filter: {{academic_period}} = Graduation Academic Period code from academic_period_filter.sql, e.g. 202510.
--- KHDA codes come from khda_sync (the inner query r returns the Digii values, the outer query maps them):
---   digii_code_map  = confirmed Digii value -> KHDA code per KHDA tenant (khda_code; suggested_code is ignored until confirmed);
---                     kind = the master_value list name below, digii_id = the Digii value
---   institution     = KHDA tenant -> Digii college (digii_data_college_id, else digii_college_id)
---   master_value    = KHDA code lists; mapped codes must exist here
---   Each coded column = confirmed mapping, else a direct label / code match in master_value, else the default:
---     Graduate Degree      kind 'degree' (by programme_types.id) or 'degreeorprogramlevel' (by programme type name),
---                          list 'degreeorprogramlevel'  default 'UD' (Undeclared)
---     Marital Status Code  list 'maritalstatus'         default 'U' (Undeclared/unknown)
---     Nationality          list 'country'               default 'NS' (Not Specified) if blank, 'UN' (Unknown) if unmapped
+-- Coded columns (KHDA lists) return the Digii values. khda_match/apply_khda_codes.py (report graduates) turns them
+-- into KHDA codes from exports of khda_sync.master_value and the confirmed khda_sync.digii_code_map mappings
+-- (exact / normalised / fuzzy matching, then the column defaults).
 -- Columns marked "Enhancement Required" / "To Be Checked" have no source field yet and are returned as NULL.
--- MySQL 5.x compatible: no CTEs / window functions. khda_sync uses a different collation, hence the explicit COLLATE.
+-- MySQL 5.x compatible: no CTEs / window functions.
 SELECT
     r.`Institution Code`,
     r.`Institution Name`,
@@ -32,46 +25,13 @@ SELECT
     r.`Graduate Email Address`,
     r.`Graduate Mobile Number`,
     r.`People of Determination`,
-    COALESCE(
-        (SELECT mv.code
-         FROM khda_sync.digii_code_map m
-         JOIN khda_sync.institution i   ON i.tenant_id = m.tenant_id
-         JOIN khda_sync.master_value mv ON mv.list_name = 'maritalstatus' AND mv.code = m.khda_code COLLATE utf8mb4_unicode_ci
-         WHERE COALESCE(i.digii_data_college_id, i.digii_college_id) = r.college_id
-           AND m.kind = 'maritalstatus' AND m.digii_id COLLATE utf8mb4_unicode_ci = r.raw_marital_status
-         LIMIT 1),
-        (SELECT mv.code FROM khda_sync.master_value mv
-         WHERE mv.list_name = 'maritalstatus' AND r.raw_marital_status IN (mv.label, mv.code) LIMIT 1),
-        'U')                                                            AS `Marital Status Code`,
-    CASE WHEN r.raw_nationality IS NULL THEN 'NS' ELSE
-    COALESCE(
-        (SELECT mv.code
-         FROM khda_sync.digii_code_map m
-         JOIN khda_sync.institution i   ON i.tenant_id = m.tenant_id
-         JOIN khda_sync.master_value mv ON mv.list_name = 'country' AND mv.code = m.khda_code COLLATE utf8mb4_unicode_ci
-         WHERE COALESCE(i.digii_data_college_id, i.digii_college_id) = r.college_id
-           AND m.kind = 'country' AND m.digii_id COLLATE utf8mb4_unicode_ci = r.raw_nationality
-         LIMIT 1),
-        (SELECT mv.code FROM khda_sync.master_value mv
-         WHERE mv.list_name = 'country' AND r.raw_nationality IN (mv.label, mv.code) LIMIT 1),
-        'UN') END                                                       AS `Nationality`,
+    r.raw_marital_status                                            AS `Marital Status Code`,
+    r.raw_nationality                                               AS `Nationality`,
     r.`Nationality of Mother`,
     r.`Home Emirate (Emirates Code)`,
     r.`Graduate Campus`,
     r.`1st Academic Period`,
-    COALESCE(
-        (SELECT mv.code                                                 -- confirmed mapping (by type id first, then by type name)
-         FROM khda_sync.digii_code_map m
-         JOIN khda_sync.institution i   ON i.tenant_id = m.tenant_id
-         JOIN khda_sync.master_value mv ON mv.list_name = 'degreeorprogramlevel' AND mv.code = m.khda_code COLLATE utf8mb4_unicode_ci
-         WHERE COALESCE(i.digii_data_college_id, i.digii_college_id) = r.college_id
-           AND ((m.kind = 'degree' AND m.digii_id COLLATE utf8mb4_unicode_ci = CAST(r.programme_type_id AS CHAR) COLLATE utf8mb4_unicode_ci)
-                OR (m.kind = 'degreeorprogramlevel' AND m.digii_id COLLATE utf8mb4_unicode_ci = r.raw_degree))
-         ORDER BY (m.kind = 'degree') DESC
-         LIMIT 1),
-        (SELECT mv.code FROM khda_sync.master_value mv
-         WHERE mv.list_name = 'degreeorprogramlevel' AND r.raw_degree IN (mv.label, mv.code) LIMIT 1),
-        'UD')                                                           AS `Graduate Degree`,
+    r.raw_degree                                                    AS `Graduate Degree`,
     r.`Graduate Area of Specialization (CIP Family code)`,
     r.`Graduate Major (text)`,
     r.`Graduate Major (CIP Major Classification)`,

@@ -10,18 +10,11 @@
 --   Teaching Workload = sum of credits of the credited courses taught; Credits Delivered = sum of credits x students.
 -- Programme of a class: mapped programme batch sections, else programmes of the students added to the class, else the
 --   class's / term's programme (same logic as the Course Faculty report).
--- KHDA codes come from khda_sync (the inner query r returns the Digii values, the outer query maps them):
---   digii_code_map  = confirmed Digii value -> KHDA code per KHDA tenant (khda_code; suggested_code is ignored until confirmed);
---                     kind = the master_value list name below, digii_id = the Digii value
---   institution     = KHDA tenant -> Digii college (digii_data_college_id, else digii_college_id)
---   master_value    = KHDA code lists; mapped codes must exist here
---   Each coded column = confirmed mapping, else a direct label / code match in master_value, else the default:
---     Full or Part Time  list 'fullparttime'     default 'FT'
---     Employee Category  list 'facultycategory'  default faculty -> 'A' (full-time instructional) / 'B' (part-time instructional),
---                                                 administrator -> 'D' (administrative officers)
---     Employee position  list 'staffposition'    default 'OTH' (Others)
+-- Coded columns (KHDA lists) return the Digii values. khda_match/apply_khda_codes.py (report employee_workload) turns them
+-- into KHDA codes from exports of khda_sync.master_value and the confirmed khda_sync.digii_code_map mappings
+-- (exact / normalised / fuzzy matching, then the column defaults).
 -- Columns marked "Enhancement Required" / "To Be Checked" have no source field yet; spec defaults are used where the spec gives one.
--- MySQL 5.x compatible: no CTEs / window functions. khda_sync uses a different collation, hence the explicit COLLATE.
+-- MySQL 5.x compatible: no CTEs / window functions.
 SELECT
     r.`Institution Code`,
     r.`Institution Name`,
@@ -30,31 +23,12 @@ SELECT
     r.`Program Level`,
     r.`Employee Area of Specialization (CIP Family code)`,
     r.`Department name`,
-    COALESCE(
-        (SELECT mv.code
-         FROM khda_sync.digii_code_map m
-         JOIN khda_sync.institution i   ON i.tenant_id = m.tenant_id
-         JOIN khda_sync.master_value mv ON mv.list_name = 'facultycategory' AND mv.code = m.khda_code COLLATE utf8mb4_unicode_ci
-         WHERE COALESCE(i.digii_data_college_id, i.digii_college_id) = r.college_id
-           AND m.kind = 'facultycategory' AND m.digii_id COLLATE utf8mb4_unicode_ci = r.raw_category
-         LIMIT 1),
-        (SELECT mv.code FROM khda_sync.master_value mv
-         WHERE mv.list_name = 'facultycategory' AND r.raw_category IN (mv.label, mv.code) LIMIT 1),
-        CASE WHEN r.user_type = 'administrator' THEN 'D'
-             WHEN r.full_part_time = 'PT'       THEN 'B'
-             ELSE 'A' END)                                              AS `Employee Category`,         -- EXCH_IN_OUT not captured (Enhancement Required)
-    r.full_part_time                                                    AS `Full or Part Time`,
-    COALESCE(
-        (SELECT mv.code
-         FROM khda_sync.digii_code_map m
-         JOIN khda_sync.institution i   ON i.tenant_id = m.tenant_id
-         JOIN khda_sync.master_value mv ON mv.list_name = 'staffposition' AND mv.code = m.khda_code COLLATE utf8mb4_unicode_ci
-         WHERE COALESCE(i.digii_data_college_id, i.digii_college_id) = r.college_id
-           AND m.kind = 'staffposition' AND m.digii_id COLLATE utf8mb4_unicode_ci = r.raw_position
-         LIMIT 1),
-        (SELECT mv.code FROM khda_sync.master_value mv
-         WHERE mv.list_name = 'staffposition' AND r.raw_position IN (mv.label, mv.code) LIMIT 1),
-        'OTH')                                                          AS `Employee position`,
+    COALESCE(r.raw_category,                                  -- Digii staff category, else default by role
+             CASE WHEN r.user_type = 'administrator' THEN 'D'
+                  WHEN LOWER(r.raw_full_part_time) IN ('pt', 'part time', 'part-time') THEN 'B'
+                  ELSE 'A' END)                                 AS `Employee Category`,         -- EXCH_IN_OUT not captured (Enhancement Required)
+    r.raw_full_part_time                                            AS `Full or Part Time`,
+    r.raw_position                                                  AS `Employee position`,
     r.`Additional Position`,
     r.`Maximum Workload per semester`,
     r.`Research Workload`,
@@ -75,20 +49,6 @@ SELECT
     r.`Faculty Publications`,
     r.`Faculty FWCI`,
     r.`Last Updated`
-FROM (
-SELECT
-    p.*,
-    COALESCE(
-        (SELECT mv.code
-         FROM khda_sync.digii_code_map m
-         JOIN khda_sync.institution i   ON i.tenant_id = m.tenant_id
-         JOIN khda_sync.master_value mv ON mv.list_name = 'fullparttime' AND mv.code = m.khda_code COLLATE utf8mb4_unicode_ci
-         WHERE COALESCE(i.digii_data_college_id, i.digii_college_id) = p.college_id
-           AND m.kind = 'fullparttime' AND m.digii_id COLLATE utf8mb4_unicode_ci = p.raw_full_part_time
-         LIMIT 1),
-        (SELECT mv.code FROM khda_sync.master_value mv
-         WHERE mv.list_name = 'fullparttime' AND p.raw_full_part_time IN (mv.label, mv.code) LIMIT 1),
-        'FT')                                                           AS full_part_time
 FROM (
 SELECT
     c.college_id,
@@ -256,6 +216,5 @@ LEFT JOIN (
     WHERE NULLIF(TRIM(v.value), '') IS NOT NULL
     GROUP BY v.ukid
 ) pub ON pub.ukid = ua.ukid
-) p
 ) r
 ORDER BY r.`Institution Name`, r.`Department name`, r.`Employee ID`;
