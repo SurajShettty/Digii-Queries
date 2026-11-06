@@ -386,9 +386,9 @@ def main() -> None:
     if not args.input.is_file():
         sys.exit(f"input file not found: {args.input}  (set INPUT_PATH at the top of this script)")
 
-    if args.offline:
-        from test_khda_match import MASTER_VALUES
-        matcher = KhdaMatcher(MASTER_VALUES)
+    # if args.offline:
+    #     from test_khda_match import MASTER_VALUES
+    #     matcher = KhdaMatcher(MASTER_VALUES)
     else:
         master_values = load_master_values_file(args.master)
         confirmed = load_confirmed_file(args.confirmed) if args.confirmed else {}
